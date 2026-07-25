@@ -5588,15 +5588,15 @@ onUnmounted(() => {
             </div>
             <div>
               <button type="button" class="geo-link" @click.stop="selectObject('point', l!.p1.id)"
-                >点{{ subName(l!.p1.name) }}</button
-              >（{{ l!.p1.position.x.toFixed(2) }},
-              {{ l!.p1.position.y.toFixed(2) }}, {{ l!.p1.position.z.toFixed(2) }}）
+                >点{{ subName(l!.p1.name) }}（{{ l!.p1.position.x.toFixed(2) }},
+                {{ l!.p1.position.y.toFixed(2) }}, {{ l!.p1.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               <button type="button" class="geo-link" @click.stop="selectObject('point', l!.p2.id)"
-                >点{{ subName(l!.p2.name) }}</button
-              >（{{ l!.p2.position.x.toFixed(2) }},
-              {{ l!.p2.position.y.toFixed(2) }}, {{ l!.p2.position.z.toFixed(2) }}）
+                >点{{ subName(l!.p2.name) }}（{{ l!.p2.position.x.toFixed(2) }},
+                {{ l!.p2.position.y.toFixed(2) }}, {{ l!.p2.position.z.toFixed(2) }}）</button
+              >
             </div>
           </div>
         </div>
@@ -5899,15 +5899,15 @@ onUnmounted(() => {
             <div>显示长度：{{ sl!.displayLength.toFixed(2) }}</div>
             <div>
               <button type="button" class="geo-link" @click.stop="selectObject('point', sl!.p1.id)"
-                >点{{ subName(sl!.p1.name) }}</button
-              >（{{ sl!.p1.position.x.toFixed(2) }},
-              {{ sl!.p1.position.y.toFixed(2) }}, {{ sl!.p1.position.z.toFixed(2) }}）
+                >点{{ subName(sl!.p1.name) }}（{{ sl!.p1.position.x.toFixed(2) }},
+                {{ sl!.p1.position.y.toFixed(2) }}, {{ sl!.p1.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               <button type="button" class="geo-link" @click.stop="selectObject('point', sl!.p2.id)"
-                >点{{ subName(sl!.p2.name) }}</button
-              >（{{ sl!.p2.position.x.toFixed(2) }},
-              {{ sl!.p2.position.y.toFixed(2) }}, {{ sl!.p2.position.z.toFixed(2) }}）
+                >点{{ subName(sl!.p2.name) }}（{{ sl!.p2.position.x.toFixed(2) }},
+                {{ sl!.p2.position.y.toFixed(2) }}, {{ sl!.p2.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               方向向量（{{ getStraightLineDirection(sl!).x.toFixed(2) }},
@@ -6132,12 +6132,16 @@ onUnmounted(() => {
             </div>
             <div>显示长度：{{ pl!.displayLength.toFixed(2) }}</div>
             <div>
-              点{{ subName(pl!.p1.name) }}（{{ pl!.p1.position.x.toFixed(2) }},
-              {{ pl!.p1.position.y.toFixed(2) }}, {{ pl!.p1.position.z.toFixed(2) }}）
+              <button type="button" class="geo-link" @click.stop="selectObject('point', pl!.p1.id)"
+                >点{{ subName(pl!.p1.name) }}（{{ pl!.p1.position.x.toFixed(2) }},
+                {{ pl!.p1.position.y.toFixed(2) }}, {{ pl!.p1.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
-              垂足坐标：（{{ pl!.p2.position.x.toFixed(2) }}, {{ pl!.p2.position.y.toFixed(2) }},
-              {{ pl!.p2.position.z.toFixed(2) }}）
+              垂足：<button type="button" class="geo-link" @click.stop="selectObject('point', pl!.p2.id)"
+                >点{{ subName(pl!.p2.name) }}（{{ pl!.p2.position.x.toFixed(2) }},
+                {{ pl!.p2.position.y.toFixed(2) }}, {{ pl!.p2.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               来源：<button
@@ -6364,8 +6368,10 @@ onUnmounted(() => {
             </div>
             <div>显示长度：{{ pl!.displayLength.toFixed(2) }}</div>
             <div>
-              点{{ subName(pl!.p1.name) }}（{{ pl!.p1.position.x.toFixed(2) }},
-              {{ pl!.p1.position.y.toFixed(2) }}, {{ pl!.p1.position.z.toFixed(2) }}）
+              <button type="button" class="geo-link" @click.stop="selectObject('point', pl!.p1.id)"
+                >点{{ subName(pl!.p1.name) }}（{{ pl!.p1.position.x.toFixed(2) }},
+                {{ pl!.p1.position.y.toFixed(2) }}, {{ pl!.p1.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               来源：<button
@@ -6655,15 +6661,15 @@ onUnmounted(() => {
             <div>显示长度：{{ r!.displayLength.toFixed(2) }}</div>
             <div>
               <button type="button" class="geo-link" @click.stop="selectObject('point', r!.p1.id)"
-                >起点{{ subName(r!.p1.name) }}</button
-              >（{{ r!.p1.position.x.toFixed(2) }},
-              {{ r!.p1.position.y.toFixed(2) }}, {{ r!.p1.position.z.toFixed(2) }}）
+                >起点{{ subName(r!.p1.name) }}（{{ r!.p1.position.x.toFixed(2) }},
+                {{ r!.p1.position.y.toFixed(2) }}, {{ r!.p1.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               <button type="button" class="geo-link" @click.stop="selectObject('point', r!.p2.id)"
-                >方向点{{ subName(r!.p2.name) }}</button
-              >（{{ r!.p2.position.x.toFixed(2) }},
-              {{ r!.p2.position.y.toFixed(2) }}, {{ r!.p2.position.z.toFixed(2) }}）
+                >方向点{{ subName(r!.p2.name) }}（{{ r!.p2.position.x.toFixed(2) }},
+                {{ r!.p2.position.y.toFixed(2) }}, {{ r!.p2.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               方向向量（{{ getRayDirection(r!).x.toFixed(2) }},
@@ -6952,15 +6958,15 @@ onUnmounted(() => {
             <div>长度：{{ v!.getLength().toFixed(2) }}</div>
             <div>
               <button type="button" class="geo-link" @click.stop="selectObject('point', v!.p1.id)"
-                >起点{{ subName(v!.p1.name) }}</button
-              >（{{ v!.p1.position.x.toFixed(2) }},
-              {{ v!.p1.position.y.toFixed(2) }}, {{ v!.p1.position.z.toFixed(2) }}）
+                >起点{{ subName(v!.p1.name) }}（{{ v!.p1.position.x.toFixed(2) }},
+                {{ v!.p1.position.y.toFixed(2) }}, {{ v!.p1.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               <button type="button" class="geo-link" @click.stop="selectObject('point', v!.p2.id)"
-                >终点{{ subName(v!.p2.name) }}</button
-              >（{{ v!.p2.position.x.toFixed(2) }},
-              {{ v!.p2.position.y.toFixed(2) }}, {{ v!.p2.position.z.toFixed(2) }}）
+                >终点{{ subName(v!.p2.name) }}（{{ v!.p2.position.x.toFixed(2) }},
+                {{ v!.p2.position.y.toFixed(2) }}, {{ v!.p2.position.z.toFixed(2) }}）</button
+              >
             </div>
             <div>
               向量（{{ v!.getDirectionVector().x.toFixed(2) }},
@@ -7586,10 +7592,10 @@ onUnmounted(() => {
                 >
               </div>
               <div>
-                <button type="button" class="geo-link" @click.stop="selectObject('point', c!.p1.id)"
-                  >圆心{{ subName(c!.p1.name) }}</button
-                >（{{ c!.p1.position.x.toFixed(2) }},
-                {{ c!.p1.position.y.toFixed(2) }}, {{ c!.p1.position.z.toFixed(2) }}）
+                圆心：<button type="button" class="geo-link" @click.stop="selectObject('point', c!.p1.id)"
+                  >{{ subName(c!.p1.name) }}（{{ c!.p1.position.x.toFixed(2) }},
+                  {{ c!.p1.position.y.toFixed(2) }}, {{ c!.p1.position.z.toFixed(2) }}）</button
+                >
               </div>
               <div>
                 法向量：<template
@@ -7622,35 +7628,33 @@ onUnmounted(() => {
                 >
               </div>
               <div>
-                <button type="button" class="geo-link" @click.stop="selectObject('point', c!.p1.id)"
-                  >点{{ subName(c!.p1.name) }}</button
-                >（{{ c!.p1.position.x.toFixed(2) }},
-                {{ c!.p1.position.y.toFixed(2) }}, {{ c!.p1.position.z.toFixed(2) }}）
+                构造点1：<button type="button" class="geo-link" @click.stop="selectObject('point', c!.p1.id)"
+                  >点{{ subName(c!.p1.name) }}（{{ c!.p1.position.x.toFixed(2) }},
+                  {{ c!.p1.position.y.toFixed(2) }}, {{ c!.p1.position.z.toFixed(2) }}）</button
+                >
               </div>
               <div>
-                <button type="button" class="geo-link" @click.stop="selectObject('point', c!.p2.id)"
-                  >点{{ subName(c!.p2.name) }}</button
-                >（{{ c!.p2.position.x.toFixed(2) }},
-                {{ c!.p2.position.y.toFixed(2) }}, {{ c!.p2.position.z.toFixed(2) }}）
+                构造点2：<button type="button" class="geo-link" @click.stop="selectObject('point', c!.p2.id)"
+                  >点{{ subName(c!.p2.name) }}（{{ c!.p2.position.x.toFixed(2) }},
+                  {{ c!.p2.position.y.toFixed(2) }}, {{ c!.p2.position.z.toFixed(2) }}）</button
+                >
               </div>
               <div>
-                <button type="button" class="geo-link" @click.stop="selectObject('point', c!.p3.id)"
-                  >点{{ subName(c!.p3.name) }}</button
-                >（{{ c!.p3.position.x.toFixed(2) }},
-                {{ c!.p3.position.y.toFixed(2) }}, {{ c!.p3.position.z.toFixed(2) }}）
+                构造点3：<button type="button" class="geo-link" @click.stop="selectObject('point', c!.p3.id)"
+                  >点{{ subName(c!.p3.name) }}（{{ c!.p3.position.x.toFixed(2) }},
+                  {{ c!.p3.position.y.toFixed(2) }}, {{ c!.p3.position.z.toFixed(2) }}）</button
+                >
               </div>
-              <div v-if="getCircleCenterPoint(c!.id)" class="point-summary-line">
-                <button
+              <div v-if="getCircleCenterPoint(c!.id)">
+                圆心：<button
                   type="button"
                   class="geo-link"
                   @click.stop="selectObject('point', getCircleCenterPoint(c!.id)!.id)"
-                >
-                  点{{ subName(getCircleCenterPoint(c!.id)!.name) }}（{{
+                  >点{{ subName(getCircleCenterPoint(c!.id)!.name) }}（{{
                     getCircleCenterPoint(c!.id)!.position.x.toFixed(2)
                   }}, {{ getCircleCenterPoint(c!.id)!.position.y.toFixed(2) }},
-                  {{ getCircleCenterPoint(c!.id)!.position.z.toFixed(2) }}）
-                </button>
-                <span class="constraint-badge">圆心约束</span>
+                  {{ getCircleCenterPoint(c!.id)!.position.z.toFixed(2) }}）</button
+                >
               </div>
             </template>
           </div>
@@ -10535,15 +10539,15 @@ onUnmounted(() => {
               <div>
                 <div>
                   <button type="button" class="geo-link" @click.stop="selectObject('point', l!.p1.id)"
-                    >点{{ subName(l!.p1.name) }}</button
-                  >（{{ l!.p1.position.x.toFixed(2) }},
-                  {{ l!.p1.position.y.toFixed(2) }}, {{ l!.p1.position.z.toFixed(2) }}）
+                    >点{{ subName(l!.p1.name) }}（{{ l!.p1.position.x.toFixed(2) }},
+                    {{ l!.p1.position.y.toFixed(2) }}, {{ l!.p1.position.z.toFixed(2) }}）</button
+                  >
                 </div>
                 <div>
                   <button type="button" class="geo-link" @click.stop="selectObject('point', l!.p2.id)"
-                    >点{{ subName(l!.p2.name) }}</button
-                  >（{{ l!.p2.position.x.toFixed(2) }},
-                  {{ l!.p2.position.y.toFixed(2) }}, {{ l!.p2.position.z.toFixed(2) }}）
+                    >点{{ subName(l!.p2.name) }}（{{ l!.p2.position.x.toFixed(2) }},
+                    {{ l!.p2.position.y.toFixed(2) }}, {{ l!.p2.position.z.toFixed(2) }}）</button
+                  >
                 </div>
               </div>
             </div>
@@ -10577,15 +10581,15 @@ onUnmounted(() => {
               </div>
               <div>
                 <button type="button" class="geo-link" @click.stop="selectObject('point', sl!.p1.id)"
-                  >点{{ subName(sl!.p1.name) }}</button
-                >（{{ sl!.p1.position.x.toFixed(2) }},
-                {{ sl!.p1.position.y.toFixed(2) }}, {{ sl!.p1.position.z.toFixed(2) }}）
+                  >点{{ subName(sl!.p1.name) }}（{{ sl!.p1.position.x.toFixed(2) }},
+                  {{ sl!.p1.position.y.toFixed(2) }}, {{ sl!.p1.position.z.toFixed(2) }}）</button
+                >
               </div>
               <div>
                 <button type="button" class="geo-link" @click.stop="selectObject('point', sl!.p2.id)"
-                  >点{{ subName(sl!.p2.name) }}</button
-                >（{{ sl!.p2.position.x.toFixed(2) }},
-                {{ sl!.p2.position.y.toFixed(2) }}, {{ sl!.p2.position.z.toFixed(2) }}）
+                  >点{{ subName(sl!.p2.name) }}（{{ sl!.p2.position.x.toFixed(2) }},
+                  {{ sl!.p2.position.y.toFixed(2) }}, {{ sl!.p2.position.z.toFixed(2) }}）</button
+                >
               </div>
             </div>
           </div>
@@ -10701,15 +10705,15 @@ onUnmounted(() => {
               </div>
               <div>
                 <button type="button" class="geo-link" @click.stop="selectObject('point', r!.p1.id)"
-                  >起点{{ subName(r!.p1.name) }}</button
-                >（{{ r!.p1.position.x.toFixed(2) }},
-                {{ r!.p1.position.y.toFixed(2) }}, {{ r!.p1.position.z.toFixed(2) }}）
+                  >起点{{ subName(r!.p1.name) }}（{{ r!.p1.position.x.toFixed(2) }},
+                  {{ r!.p1.position.y.toFixed(2) }}, {{ r!.p1.position.z.toFixed(2) }}）</button
+                >
               </div>
               <div>
                 <button type="button" class="geo-link" @click.stop="selectObject('point', r!.p2.id)"
-                  >方向点{{ subName(r!.p2.name) }}</button
-                >（{{ r!.p2.position.x.toFixed(2) }},
-                {{ r!.p2.position.y.toFixed(2) }}, {{ r!.p2.position.z.toFixed(2) }}）
+                  >方向点{{ subName(r!.p2.name) }}（{{ r!.p2.position.x.toFixed(2) }},
+                  {{ r!.p2.position.y.toFixed(2) }}, {{ r!.p2.position.z.toFixed(2) }}）</button
+                >
               </div>
             </div>
           </div>
@@ -10742,15 +10746,15 @@ onUnmounted(() => {
               </div>
               <div>
                 <button type="button" class="geo-link" @click.stop="selectObject('point', vec!.p1.id)"
-                  >起点{{ subName(vec!.p1.name) }}</button
-                >（{{ vec!.p1.position.x.toFixed(2) }},
-                {{ vec!.p1.position.y.toFixed(2) }}, {{ vec!.p1.position.z.toFixed(2) }}）
+                  >起点{{ subName(vec!.p1.name) }}（{{ vec!.p1.position.x.toFixed(2) }},
+                  {{ vec!.p1.position.y.toFixed(2) }}, {{ vec!.p1.position.z.toFixed(2) }}）</button
+                >
               </div>
               <div>
                 <button type="button" class="geo-link" @click.stop="selectObject('point', vec!.p2.id)"
-                  >终点{{ subName(vec!.p2.name) }}</button
-                >（{{ vec!.p2.position.x.toFixed(2) }},
-                {{ vec!.p2.position.y.toFixed(2) }}, {{ vec!.p2.position.z.toFixed(2) }}）
+                  >终点{{ subName(vec!.p2.name) }}（{{ vec!.p2.position.x.toFixed(2) }},
+                  {{ vec!.p2.position.y.toFixed(2) }}, {{ vec!.p2.position.z.toFixed(2) }}）</button
+                >
               </div>
             </div>
           </div>
@@ -10786,10 +10790,10 @@ onUnmounted(() => {
               <template v-if="c!.isNormalCircle()">
                 <div>半径：{{ getNormalCircleRadius(c!).toFixed(2) }}</div>
                 <div>
-                  <button type="button" class="geo-link" @click.stop="selectObject('point', c!.p1.id)"
-                    >圆心：{{ subName(c!.p1.name) }}</button
-                  >（{{ c!.p1.position.x.toFixed(2) }},
-                  {{ c!.p1.position.y.toFixed(2) }}, {{ c!.p1.position.z.toFixed(2) }}）
+                  圆心：<button type="button" class="geo-link" @click.stop="selectObject('point', c!.p1.id)"
+                    >{{ subName(c!.p1.name) }}（{{ c!.p1.position.x.toFixed(2) }},
+                    {{ c!.p1.position.y.toFixed(2) }}, {{ c!.p1.position.z.toFixed(2) }}）</button
+                  >
                 </div>
                 <div>
                   法向量：<template
@@ -10820,12 +10824,15 @@ onUnmounted(() => {
                   >点{{ subName(c!.p3.name) }}</button>
                 </div>
                 <div v-if="getCircleCenterPoint(c!.id)">
-                  <button
+                  圆心：<button
                     type="button"
                     class="geo-link"
                     @click.stop="selectObject('point', getCircleCenterPoint(c!.id)!.id)"
-                  >圆心：{{ subName(getCircleCenterPoint(c!.id)!.name) }}</button>
-                  <span class="constraint-badge">圆心约束</span>
+                    >点{{ subName(getCircleCenterPoint(c!.id)!.name) }}（{{
+                      getCircleCenterPoint(c!.id)!.position.x.toFixed(2)
+                    }}, {{ getCircleCenterPoint(c!.id)!.position.y.toFixed(2) }},
+                    {{ getCircleCenterPoint(c!.id)!.position.z.toFixed(2) }}）</button
+                  >
                 </div>
               </template>
             </div>
@@ -11578,7 +11585,7 @@ hr {
   background: none;
   border: none;
   margin: 0;
-  padding: 0 4px;
+  padding: 0 4px 0 0;
   color: #9fd8ff;
   font: inherit;
   line-height: inherit;
