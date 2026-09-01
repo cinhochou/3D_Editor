@@ -11,6 +11,7 @@
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "collab-server": "node scripts/y-websocket-server.mjs",
+    "collab-server:prod": "node scripts/y-websocket-server-prod.mjs",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
     "lint": "eslint . --fix --cache",

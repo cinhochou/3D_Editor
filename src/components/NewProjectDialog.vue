@@ -105,7 +105,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 <template>
   <Teleport to="body">
     <Transition name="fade-overlay">
-      <div v-if="visible" class="np-overlay" @click.self="handleCancel" @keydown="handleKeydown">
+      <div v-if="visible" class="np-overlay" @keydown="handleKeydown">
         <div class="np-dialog">
           <div class="np-header">
             <span class="np-title">新建项目</span>

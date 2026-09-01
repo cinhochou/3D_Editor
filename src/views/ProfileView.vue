@@ -5,9 +5,13 @@ import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/store/authStore'
 import { profileApi } from '@/api/profile'
 import type { UserStats } from '@/api/profile'
+import { roomApi } from '@/api/room'
 import { useSessionGuard } from '@/composables/useSessionGuard'
 import ProxiedImage from '@/components/ProxiedImage.vue'
 import { crossTabLoginEvents, type CrossTabLoginEvent } from '@/utils/sessionEvents'
+import { patchObject } from '@/utils/reactiveMerge'
+import { invalidateImageCache, resolveImageUrl } from '@/utils/imageCache'
+import { getApiConfig } from '@/config/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,11 +86,19 @@ onMounted(() => {
   }
   syncFormFromUser()
   loadStats()
+  // 启动定时轮询，静默局部刷新用户统计
+  statsPollingTimer = setInterval(() => {
+    void loadStats(true)
+  }, STATS_POLL_INTERVAL)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   crossTabLoginEvents.off(handleCrossTabLogin)
+  if (statsPollingTimer) {
+    clearInterval(statsPollingTimer)
+    statsPollingTimer = null
+  }
 })
 
 // B10：仅在切换账号时重拉统计；同账号重登统计未变，跳过无意义的 API 调用
@@ -139,17 +151,35 @@ const goToProjectList = () => {
   window.open(resolved.href, '_blank')
 }
 
-const loadStats = async () => {
+const goToRoomList = () => {
+  const resolved = router.resolve({ name: 'rooms' })
+  window.open(resolved.href, '_blank')
+}
+
+const loadStats = async (silent = false) => {
   if (!user.value?.id) return
-  statsLoading.value = true
+  // 仅首次加载显示 loading；轮询时静默更新，避免数字闪烁
+  if (!silent) statsLoading.value = true
   try {
-    stats.value = await profileApi.getUserStats(user.value.id)
+    // 并行获取后端统计（项目数）和房间列表（房间数）
+    // 房间数使用 roomApi.getMyRooms() 的长度，与房间列表页一致（创建+参与+观看）
+    const [next, rooms] = await Promise.all([
+      profileApi.getUserStats(user.value.id),
+      roomApi.getMyRooms().catch(() => []),
+    ])
+    next.roomCount = rooms.length
+    // 局部动态刷新：仅更新变化的字段，保持未变化字段引用稳定
+    stats.value = stats.value ? patchObject(stats.value, next) : next
   } catch {
-    stats.value = { projectCount: 0, roomCount: 0 }
+    if (!stats.value) stats.value = { projectCount: 0, roomCount: 0 }
   } finally {
-    statsLoading.value = false
+    if (!silent) statsLoading.value = false
   }
 }
+
+// 定时轮询用户统计（30秒静默局部刷新），实时同步项目数/房间数
+let statsPollingTimer: ReturnType<typeof setInterval> | null = null
+const STATS_POLL_INTERVAL = 30_000
 
 watch(
   () => user.value,
@@ -194,8 +224,15 @@ const handleAvatarChange = async (event: Event) => {
 
   avatarPreview.value = URL.createObjectURL(file)
   avatarUploading.value = true
+  // 记录旧头像地址，上传成功后使持久化缓存失效，避免其他组件继续显示旧图
+  const previousAvatarUrl = user.value.avatarUrl
   try {
     await profileApi.uploadAvatar(user.value.id, file)
+    if (previousAvatarUrl) {
+      await invalidateImageCache(
+        resolveImageUrl(previousAvatarUrl, getApiConfig().baseUrl),
+      )
+    }
     await authStore.refreshCurrentUser()
     showToast('头像更新成功')
   } catch (err) {
@@ -392,7 +429,7 @@ const cancelEditPassword = () => {
               <span class="stat-sep">·</span>
               <span class="stat-chip stat-chip-clickable" @click="goToProjectList"><span class="stat-val">{{ statsLoading ? '-' : stats?.projectCount ?? 0 }}</span> 项目</span>
               <span class="stat-sep">·</span>
-              <span class="stat-chip"><span class="stat-val">{{ statsLoading ? '-' : stats?.roomCount ?? 0 }}</span> 房间</span>
+              <span class="stat-chip stat-chip-clickable" @click="goToRoomList"><span class="stat-val">{{ statsLoading ? '-' : stats?.roomCount ?? 0 }}</span> 房间</span>
             </div>
           </div>
         </div>
@@ -479,7 +516,7 @@ const cancelEditPassword = () => {
     </Transition>
 
     <Transition name="preview-fade">
-      <div v-if="avatarPreviewVisible" class="avatar-preview-backdrop" @click="closeAvatarPreview">
+      <div v-if="avatarPreviewVisible" class="avatar-preview-backdrop">
         <div class="avatar-preview-wrapper" @click.stop>
           <img
             v-if="avatarPreview"

@@ -43,4 +43,17 @@ export const projectApi = {
     formData.append('file', file, 'thumbnail.jpg')
     return apiClient.upload<string>('/project/upload-thumbnail', formData)
   },
+
+  // ---- 回收站 ----
+  async getTrashedProjects(): Promise<Project[]> {
+    return apiClient.get<Project[]>('/project/trash')
+  },
+
+  async restoreProject(id: string): Promise<void> {
+    return apiClient.post<void>(`/project/${id}/restore`)
+  },
+
+  async purgeProject(id: string): Promise<void> {
+    return apiClient.delete<void>(`/project/${id}/purge`)
+  },
 }

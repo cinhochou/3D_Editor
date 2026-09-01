@@ -169,6 +169,27 @@ export class Interaction {
 
   raycaster = new THREE.Raycaster()
   mouse = new THREE.Vector2()
+  // 仅观看模式：协作中 viewer 角色只能选中元素浏览，不能拖拽/创建/删除
+  private viewOnly = false
+  setViewOnly(value: boolean) {
+    this.viewOnly = value
+    // 切换为仅观看时立即终止任何进行中的拖拽
+    if (value) {
+      this.draggingPointId = null
+      this.draggingLineId = null
+      this.draggingStraightLineId = null
+      this.draggingRayId = null
+      this.draggingVectorId = null
+      this.draggingCircleId = null
+      this.draggingSphereId = null
+      this.draggingConeId = null
+      this.draggingCylinderId = null
+      this.draggingFaceId = null
+      this.draggingNetId = null
+      this.draggingNetControlEdgeId = null
+      this.draggingLabelTarget = null
+    }
+  }
   draggingPointId: string | null = null
   draggingLineId: string | null = null
   draggingStraightLineId: string | null = null
@@ -2515,6 +2536,8 @@ export class Interaction {
   }
 
   private handleSelectionDragMove(isAltPressed: boolean) {
+    // 仅观看模式：不处理任何拖拽移动
+    if (this.viewOnly) return
     const selection = this.editor.scene.selection
 
     if (this.draggingPointId) {
@@ -3988,6 +4011,8 @@ export class Interaction {
 
   onMouseDown = (e: MouseEvent) => {
     if (this.shouldIgnoreMouseEvent()) return
+    // 仅观看模式：仅允许选中浏览，禁止创建/删除等修改操作
+    if (this.viewOnly && this.editor.mode !== EditorMode.Select) return
     this.updateMouse(e)
     const labelHit =
       this.editor.mode === EditorMode.Select ? this.pickLabelAtClient(e.clientX, e.clientY) : null
@@ -4824,6 +4849,8 @@ export class Interaction {
 
   onPointerDown = (e: PointerEvent) => {
     if (e.pointerType !== 'touch') return
+    // 仅观看模式：仅允许选中浏览，禁止创建/删除等修改操作
+    if (this.viewOnly && this.editor.mode !== EditorMode.Select) return
     this.lastTouchEventAt = performance.now()
     this.activeTouchPoints.set(e.pointerId, new THREE.Vector2(e.clientX, e.clientY))
 
@@ -6273,6 +6300,8 @@ export class Interaction {
   }
 
   private startDrag(referencePos: Vec3) {
+    // 仅观看模式：不启动拖拽，避免设置拖拽平面
+    if (this.viewOnly) return
     const cameraDir = this.renderer.getActiveCameraWorldDirection()
     const refMath = new THREE.Vector3(referencePos.x, referencePos.y, referencePos.z)
     const ref = this.renderer.toMathWorldPosition(refMath)
@@ -6994,6 +7023,8 @@ export class Interaction {
     clientX: number,
     clientY: number,
   ) {
+    // 仅观看模式：不启动标签拖拽
+    if (this.viewOnly) return false
     const geometry = this.getGeometryByType(type, geoId)
     if (!geometry) return false
 

@@ -8,6 +8,7 @@ import type { Project } from '@/types/project'
 import { useSessionGuard } from '@/composables/useSessionGuard'
 import ProxiedImage from '@/components/ProxiedImage.vue'
 import { crossTabLoginEvents, type CrossTabLoginEvent } from '@/utils/sessionEvents'
+import { mergeArrayById } from '@/utils/reactiveMerge'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,6 +30,10 @@ const deleteConfirmId = ref<string | null>(null)
 const pageSize = ref(5)
 const currentPage = ref(1)
 const searchQuery = ref('')
+// 回到顶部
+const showBackToTop = ref(false)
+// 自动定位高亮的项目（从房间列表跳转过来时使用）
+const highlightProjectId = ref<string | null>(null)
 type SortValue =
   | 'nameAsc'
   | 'nameDesc'
@@ -77,24 +82,35 @@ const expandedProjects = ref<Set<string>>(new Set())
 const descOverflowMap = ref<Record<string, boolean>>({})
 const ownerMap = ref<Record<string, string>>({})
 
-const fetchProjects = async () => {
-  isLoading.value = true
+const fetchProjects = async (silent = false) => {
+  // 仅首次加载和手动刷新时显示 loading；轮询时静默更新，避免闪烁
+  if (!silent) isLoading.value = true
   try {
-    allProjects.value = await projectApi.getMyProjects()
+    const projects = await projectApi.getMyProjects()
+    // 局部动态刷新：按 id 合并，保留未变化项目的对象引用，避免列表重渲染/滚动重置
+    allProjects.value = mergeArrayById(allProjects.value, projects) as Project[]
     const ownerIds = [...new Set(allProjects.value.map((p) => p.ownerId))]
     const users = await Promise.all(ownerIds.map((id) => userApi.getUser(id).catch(() => null)))
     const map: Record<string, string> = {}
     users.forEach((u) => {
       if (u) map[u.id] = u.nickname || u.username
     })
-    ownerMap.value = map
+    // 仅在 ownerMap 有变化时赋值，避免不必要的响应式更新
+    const prevMap = ownerMap.value
+    const mapChanged = Object.keys(map).length !== Object.keys(prevMap).length
+      || Object.entries(map).some(([k, v]) => prevMap[k] !== v)
+    if (mapChanged) ownerMap.value = map
   } catch (err) {
     const msg = err instanceof ApiError ? err.message : '获取项目列表失败'
     window.dispatchEvent(new CustomEvent('toast', { detail: { msg, scope: 'global' } }))
   } finally {
-    isLoading.value = false
+    if (!silent) isLoading.value = false
   }
 }
+
+// 定时轮询项目列表（30秒静默局部刷新），实时同步项目状态
+let projectPollingTimer: ReturnType<typeof setInterval> | null = null
+const PROJECT_POLL_INTERVAL = 30_000
 
 // B10：仅在切换账号时重拉项目列表；同账号重登列表未变，跳过无意义的 API 调用
 const handleCrossTabLogin = (event: CrossTabLoginEvent) => {
@@ -104,17 +120,76 @@ const handleCrossTabLogin = (event: CrossTabLoginEvent) => {
 }
 
 onMounted(() => {
-  fetchProjects()
   document.addEventListener('click', onSortClickOutside)
   // 跨 Tab 重新登录：当其他 Tab 登录/重新登录并切换到当前 Tab 的 user 后，
   // 重新拉取项目列表（列表数据是基于 user.id 过滤的，切换账号必须重拉）
   crossTabLoginEvents.on(handleCrossTabLogin)
+  if (plBodyRef.value) {
+    plBodyRef.value.addEventListener('scroll', onBodyScroll, { passive: true })
+  }
+  // 拉取项目列表后，若 URL 携带 projectId 则自动定位并高亮对应项目
+  fetchProjects().then(() => {
+    const qid = route.query.projectId
+    if (typeof qid === 'string' && qid) {
+      locateProject(qid)
+    }
+  })
+  // 启动定时轮询，静默局部刷新项目列表
+  projectPollingTimer = setInterval(() => {
+    void fetchProjects(true)
+  }, PROJECT_POLL_INTERVAL)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onSortClickOutside)
   crossTabLoginEvents.off(handleCrossTabLogin)
+  if (plBodyRef.value) {
+    plBodyRef.value.removeEventListener('scroll', onBodyScroll)
+  }
+  if (projectPollingTimer) {
+    clearInterval(projectPollingTimer)
+    projectPollingTimer = null
+  }
 })
+
+// ---- 回到顶部 ----
+const onBodyScroll = () => {
+  showBackToTop.value = (plBodyRef.value?.scrollTop ?? 0) > 240
+}
+const scrollToTop = () => {
+  plBodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// ---- 自动定位并高亮项目（从房间列表的关联项目入口跳转过来）----
+const locateProject = (projectId: string) => {
+  // 清空搜索，确保目标项目在过滤结果中可见
+  searchQuery.value = ''
+  nextTick(() => {
+    const idx = filteredProjects.value.findIndex((p) => p.id === projectId)
+    if (idx === -1) {
+      window.dispatchEvent(
+        new CustomEvent('toast', { detail: { msg: '未找到关联的项目', scope: 'global' } }),
+      )
+      return
+    }
+    // 跳转到该项目所在的分页
+    currentPage.value = Math.floor(idx / pageSize.value) + 1
+    nextTick(() => {
+      const body = plBodyRef.value
+      if (!body) return
+      const cards = body.querySelectorAll('.pl-card')
+      const pageIdx = idx % pageSize.value
+      const card = cards[pageIdx] as HTMLElement | undefined
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        highlightProjectId.value = projectId
+        setTimeout(() => {
+          highlightProjectId.value = null
+        }, 2600)
+      }
+    })
+  })
+}
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 watch(searchQuery, () => {
@@ -134,7 +209,7 @@ const filteredProjects = computed(() => {
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.id.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q),
+          (p.description && p.description.toLowerCase().includes(q)),
       )
     : allProjects.value
   const sorted = [...base]
@@ -359,11 +434,7 @@ const handleNewProject = () => {
 }
 
 const handleRecycleBin = () => {
-  window.dispatchEvent(
-    new CustomEvent('toast', {
-      detail: { msg: '回收站功能开发中', scope: 'global' },
-    }),
-  )
+  router.push({ name: 'recycle-bin', query: { section: 'projects' } })
 }
 </script>
 
@@ -532,7 +603,12 @@ const handleRecycleBin = () => {
         </div>
 
         <div v-else class="pl-list">
-          <div v-for="project in paginatedProjects" :key="project.id" class="pl-card">
+          <div
+            v-for="project in paginatedProjects"
+            :key="project.id"
+            class="pl-card"
+            :class="{ 'pl-card-highlight': highlightProjectId === project.id }"
+          >
             <div class="pl-card-thumb" @click="openProject(project.id)">
               <div v-if="!project.thumbnailUrl" class="pl-thumb-placeholder">
                 <svg
@@ -896,6 +972,29 @@ const handleRecycleBin = () => {
         </div>
       </div>
     </div>
+
+    <!-- 回到顶部悬浮按钮 -->
+    <Transition name="backtop-fade">
+      <button
+        v-if="showBackToTop"
+        class="pl-back-to-top"
+        @click="scrollToTop"
+        title="回到顶部"
+        aria-label="回到顶部"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="12" y1="19" x2="12" y2="5" />
+          <polyline points="5 12 12 5 19 12" />
+        </svg>
+      </button>
+    </Transition>
   </div>
 </template>
 
@@ -1862,6 +1961,87 @@ const handleRecycleBin = () => {
   text-align: center;
 }
 
+/* 自动定位高亮的项目卡片 */
+.pl-card-highlight {
+  border-color: rgba(67, 242, 96, 0.75) !important;
+  box-shadow:
+    0 0 0 2px rgba(67, 242, 96, 0.25),
+    0 12px 32px rgba(0, 0, 0, 0.35) !important;
+  animation: pl-highlight-pulse 1.2s ease-in-out 2;
+}
+
+@keyframes pl-highlight-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(67, 242, 96, 0.25),
+      0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(67, 242, 96, 0.45),
+      0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* 回到顶部悬浮按钮 */
+.pl-back-to-top {
+  position: fixed;
+  right: 28px;
+  bottom: 80px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(67, 242, 96, 0.4);
+  background: linear-gradient(180deg, #2a2a2a 0%, #1d1d1d 100%);
+  color: #43f260;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(67, 242, 96, 0.1);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+  z-index: 50;
+}
+
+.pl-back-to-top svg {
+  width: 20px;
+  height: 20px;
+}
+
+.pl-back-to-top:hover {
+  transform: translateY(-2px);
+  border-color: rgba(67, 242, 96, 0.7);
+  color: #8df2a0;
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(67, 242, 96, 0.18);
+}
+
+.pl-back-to-top:active {
+  transform: translateY(0);
+}
+
+.backtop-fade-enter-active,
+.backtop-fade-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.backtop-fade-enter-from,
+.backtop-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
 @media (max-width: 640px) {
   .pl-header {
     padding: 16px;
@@ -1931,6 +2111,18 @@ const handleRecycleBin = () => {
     flex-direction: column;
     gap: 8px;
     align-items: center;
+  }
+
+  .pl-back-to-top {
+    right: 16px;
+    bottom: 150px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .pl-back-to-top svg {
+    width: 18px;
+    height: 18px;
   }
 }
 </style>

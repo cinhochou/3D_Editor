@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { CollabManager } from '@/core/collab/CollabManager'
 import type { CollabStatus } from '@/core/collab/CollabManager'
+import type { Room } from '@/types/room'
 
 interface CollabJoinDialogState {
   visible: boolean
@@ -20,6 +21,8 @@ export const useCollabStore = defineStore('collab', () => {
     connecting: false,
     connected: false,
   })
+  // 当前协作房间的元数据（来自 roomApi），用于工具栏按钮展示与管理面板
+  const currentRoom = ref<Room | null>(null)
   const joinDialog = ref<CollabJoinDialogState>({
     visible: false,
     message: DEFAULT_COLLAB_JOIN_MESSAGE,
@@ -46,6 +49,10 @@ export const useCollabStore = defineStore('collab', () => {
 
   const setStatus = (value: CollabStatus) => {
     status.value = value
+  }
+
+  const setCurrentRoom = (room: Room | null) => {
+    currentRoom.value = room
   }
 
   const openJoinDialog = (message: string = DEFAULT_COLLAB_JOIN_MESSAGE) => {
@@ -78,6 +85,7 @@ export const useCollabStore = defineStore('collab', () => {
       connecting: false,
       connected: false,
     }
+    currentRoom.value = null
     closeJoinDialog()
   }
 
@@ -115,6 +123,7 @@ export const useCollabStore = defineStore('collab', () => {
     peerCount,
     latencyMs,
     status,
+    currentRoom,
     joinDialog,
     isConnected,
     isConnecting,
@@ -123,6 +132,7 @@ export const useCollabStore = defineStore('collab', () => {
     setPeerCount,
     setLatencyMs,
     setStatus,
+    setCurrentRoom,
     openJoinDialog,
     closeJoinDialog,
     setJoinDialogMessage,

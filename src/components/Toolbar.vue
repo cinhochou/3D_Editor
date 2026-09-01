@@ -9,6 +9,8 @@ import { useSceneStore } from '@/store/sceneStore'
 import { useCollabStore } from '@/store/collabStore'
 import { useAuthStore } from '@/store/authStore'
 import ProxiedImage from '@/components/ProxiedImage.vue'
+import CollabPanel from '@/components/CollabPanel.vue'
+import type { Room } from '@/types/room'
 
 defineOptions({
   name: 'EditorToolbar',
@@ -18,12 +20,17 @@ const props = defineProps<{
   isCoordinateSystemVisible: boolean
   isArMode: boolean
   hasActiveProject?: boolean
+  currentProjectId?: string | null
+  viewOnly?: boolean
+  // 外部触发打开"创建协作"对话框（自增计数，>0 且变化时触发）
+  collabCreateTrigger?: number
 }>()
 
 const emit = defineEmits<{
   (e: 'mode-change', mode: EditorMode): void
   (e: 'toggle-ar', isOpen: boolean): void
-  (e: 'toggle-collab', data: { open: boolean; room: string }): void
+  (e: 'collab-join', data: { roomId: string; room: Room; wsUrl: string; ticket: string }): void
+  (e: 'collab-leave'): void
   (e: 'clear-all'): void
   (e: 'undo'): void
   (e: 'redo'): void
@@ -34,6 +41,7 @@ const emit = defineEmits<{
   (e: 'exit-project'): void
   (e: 'edit-project'): void
   (e: 'open-align-points'): void
+  (e: 'project-created', projectId: string): void
 }>()
 
 const uiStore = useUiStore()
@@ -44,13 +52,21 @@ const router = useRouter()
 const route = useRoute()
 const { isARMode, toolbarMenus } = storeToRefs(uiStore)
 const { currentMode, canUndo, canRedo } = storeToRefs(sceneStore)
-const { roomName, peerCount, isConnected, isConnecting } = storeToRefs(collabStore)
+const { currentRoom, isConnected } = storeToRefs(collabStore)
 const { isAuthenticated, user, isLoading: isAuthLoading } = storeToRefs(authStore)
 const isArLocked = computed(() => props.isArMode)
 const isCoordinateSystemOff = computed(() => !props.isCoordinateSystemVisible)
-const isEditingLocked = computed(() => isArLocked.value || isCoordinateSystemOff.value)
-const isCollabOpen = computed(() => isConnected.value)
-const isCollabConnecting = computed(() => isConnecting.value)
+const isViewOnly = computed(() => props.viewOnly === true)
+const isEditingLocked = computed(
+  () => isArLocked.value || isCoordinateSystemOff.value || isViewOnly.value,
+)
+// 协作房间权限限制（实时响应 currentRoom 变化）：创建者配置后所有成员对应操作被禁用
+const collabDisableExport = computed(() => !!currentRoom.value?.disableExport)
+const collabDisableImport = computed(() => !!currentRoom.value?.disableImport)
+const collabDisableClear = computed(() => !!currentRoom.value?.disableClear)
+const collabDisableUndoRedo = computed(
+  () => !!currentRoom.value?.disableUndoRedo && currentRoom.value.myRole !== 'creator',
+)
 const isAROpen = computed(() => isARMode.value)
 const isDeleteMenuOpen = computed(() => toolbarMenus.value.deleteOpen)
 const isPointMenuOpen = computed(() => toolbarMenus.value.pointOpen)
@@ -137,6 +153,85 @@ const defaultAvatarText = computed(() => {
   return source ? source.slice(0, 1).toUpperCase() : 'U'
 })
 
+// ---- 协作管理 ----
+const collabDialogOpen = ref(false)
+const collabPanelOpen = ref(false)
+const collabTriggerRef = ref<HTMLElement | null>(null)
+// 未登录用户点击"开启协作"时展开的登录提示弹窗
+const collabLoginPromptOpen = ref(false)
+const collabLoginPromptRef = ref<HTMLElement | null>(null)
+const collabLoginPromptStyle = ref<{
+  top: string
+  left: string
+  minWidth: string
+}>({ top: '0px', left: '0px', minWidth: '248px' })
+
+const updateCollabLoginPromptPosition = () => {
+  const trigger = collabTriggerRef.value
+  if (!trigger) return
+  const rect = trigger.getBoundingClientRect()
+  collabLoginPromptStyle.value = {
+    top: `${rect.bottom + 8}px`,
+    left: `${Math.max(8, rect.right - 248)}px`,
+    minWidth: '248px',
+  }
+}
+
+// 当前用户是否为房间创建者
+const isRoomCreator = computed(() => currentRoom.value?.myRole === 'creator')
+
+// 协作触发按钮展示的创建者头像：当前用户为创建者时用其头像，否则用房间创建者头像
+const collabTriggerAvatarUrl = computed(() => {
+  if (!currentRoom.value) return null
+  if (isRoomCreator.value) return user.value?.avatarUrl || null
+  return currentRoom.value.ownerAvatarUrl || null
+})
+
+// 协作触发按钮展示的创建者名称
+const collabTriggerDisplayName = computed(() => {
+  if (!currentRoom.value) return ''
+  if (isRoomCreator.value) {
+    return user.value?.nickname || user.value?.username || '我'
+  }
+  return currentRoom.value.ownerName || '未知'
+})
+
+const collabTriggerInitial = computed(() => {
+  const name = collabTriggerDisplayName.value.trim()
+  return name ? name.slice(0, 1).toUpperCase() : 'U'
+})
+
+// 按钮上展示的房间名称：最多显示 4 个字符，超出用省略号代替
+const collabTriggerRoomLabel = computed(() => {
+  const name = currentRoom.value?.name?.trim() || ''
+  if (name.length <= 4) return name
+  return name.slice(0, 4) + '...'
+})
+
+const handleCollabTriggerClick = () => {
+  if (isConnected.value && currentRoom.value) {
+    // 已在房间中：切换管理面板
+    collabPanelOpen.value = !collabPanelOpen.value
+  } else if (!isAuthenticated.value) {
+    // 未登录：展开登录提示弹窗
+    collabLoginPromptOpen.value = !collabLoginPromptOpen.value
+    if (collabLoginPromptOpen.value) {
+      nextTick(() => updateCollabLoginPromptPosition())
+    }
+  } else {
+    // 已登录且未在房间中：打开创建/加入对话框
+    collabDialogOpen.value = true
+  }
+}
+
+const handleCollabJoin = (data: { roomId: string; room: Room; wsUrl: string; ticket: string }) => {
+  emit('collab-join', data)
+}
+
+const handleCollabLeave = () => {
+  emit('collab-leave')
+}
+
 watch(
   () => props.isArMode,
   (val) => {
@@ -146,19 +241,23 @@ watch(
   { immediate: true },
 )
 
+// 外部触发打开"创建协作"对话框（自增计数变化时触发）
+watch(
+  () => props.collabCreateTrigger,
+  (val) => {
+    if (val && val > 0) {
+      // 仅在已登录且不在任何房间时打开创建对话框
+      if (isAuthenticated.value && !(isConnected.value && currentRoom.value)) {
+        collabDialogOpen.value = true
+      }
+    }
+  },
+)
+
 const setMode = (mode: EditorMode) => {
   if (isEditingLocked.value && mode !== EditorMode.Select) return
   uiStore.closeAllToolbarMenus()
   emit('mode-change', mode)
-}
-
-const toggleCollab = () => {
-  if (isCollabConnecting.value) return
-  if (isCollabOpen.value) {
-    emit('toggle-collab', { open: false, room: roomName.value })
-  } else {
-    emit('toggle-collab', { open: true, room: roomName.value })
-  }
 }
 
 const toggleAR = () => {
@@ -268,7 +367,7 @@ const selectDeleteMode = () => {
 }
 
 const requestClearAll = () => {
-  if (isEditingLocked.value) return
+  if (isEditingLocked.value || collabDisableClear.value) return
   uiStore.setToolbarMenuOpen('deleteOpen', false, { exclusive: false })
   emit('clear-all')
 }
@@ -559,6 +658,22 @@ const goLogin = async () => {
   })
 }
 
+const goCollabLogin = async () => {
+  collabLoginPromptOpen.value = false
+  await router.push({
+    name: 'login',
+    query: { redirect: route.fullPath || '/' },
+  })
+}
+
+const goCollabRegister = async () => {
+  collabLoginPromptOpen.value = false
+  await router.push({
+    name: 'register',
+    query: { redirect: route.fullPath || '/' },
+  })
+}
+
 const goProfilePage = () => {
   profileMenuOpen.value = false
   const resolved = router.resolve({ name: 'profile' })
@@ -568,6 +683,12 @@ const goProfilePage = () => {
 const goProjectListPage = () => {
   profileMenuOpen.value = false
   const resolved = router.resolve({ name: 'projects' })
+  window.open(resolved.href, '_blank')
+}
+
+const goRoomListPage = () => {
+  profileMenuOpen.value = false
+  const resolved = router.resolve({ name: 'rooms' })
   window.open(resolved.href, '_blank')
 }
 
@@ -661,6 +782,13 @@ const handleClickOutside = (event: MouseEvent) => {
     profileMenuOpen.value = false
   }
   if (
+    collabLoginPromptOpen.value &&
+    !collabTriggerRef.value?.contains(target) &&
+    !collabLoginPromptRef.value?.contains(target)
+  ) {
+    collabLoginPromptOpen.value = false
+  }
+  if (
     sideMenuOpen.value &&
     !sideMenuRef.value?.contains(target) &&
     !sideMenuOverlayRef.value?.contains(target)
@@ -725,6 +853,11 @@ watch(profileMenuOpen, async (isOpen) => {
   if (!isOpen) return
   await nextTick()
   updateProfileMenuPosition()
+})
+
+// 用户登录后自动关闭协作登录提示弹窗
+watch(isAuthenticated, (authed) => {
+  if (authed) collabLoginPromptOpen.value = false
 })
 
 watch(
@@ -919,37 +1052,57 @@ onUnmounted(() => {
 
       <div class="divider"></div>
 
-      <div class="collab-box">
-        <input
-          v-model="roomName"
-          :disabled="isCollabOpen || isCollabConnecting"
-          placeholder="输入房间名"
-          class="room-input"
-        />
-        <button
-          @click="toggleCollab"
-          :class="{ active: isCollabOpen }"
-          :disabled="isCollabConnecting"
-        >
-          {{ isCollabOpen ? '退出协作' : isCollabConnecting ? '连接中...' : '开启协作' }}
-        </button>
-        <span v-if="isCollabOpen" class="peer-count">👥 {{ peerCount }}</span>
-      </div>
-
-      <div class="divider"></div>
-
       <button @click="toggleAR" :class="{ active: isAROpen }">
         {{ isAROpen ? '退出 AR' : '开启 AR' }}
       </button>
 
       <div class="divider history-divider"></div>
-      <button class="history-button" @click="emit('undo')" :disabled="isEditingLocked || !canUndo">
+      <button class="history-button" @click="emit('undo')" :disabled="isEditingLocked || collabDisableUndoRedo || !canUndo">
         撤销
       </button>
-      <button class="history-button" @click="emit('redo')" :disabled="isEditingLocked || !canRedo">
+      <button class="history-button" @click="emit('redo')" :disabled="isEditingLocked || collabDisableUndoRedo || !canRedo">
         重做
       </button>
       </div>
+    </div>
+
+    <!-- 协作触发按钮：未连接时显示“开启协作”；已连接时显示创建者头像+房间名+呼吸绿点 -->
+    <div
+      ref="collabTriggerRef"
+      class="collab-trigger"
+      :class="{ 'is-open': collabPanelOpen, 'is-connected': isConnected }"
+      @click="handleCollabTriggerClick"
+    >
+      <template v-if="isConnected && currentRoom">
+        <div class="collab-trigger-avatar">
+          <ProxiedImage
+            v-if="collabTriggerAvatarUrl"
+            :src="collabTriggerAvatarUrl"
+            alt="avatar"
+            class="avatar-image"
+          />
+          <div v-else class="avatar-fallback">{{ collabTriggerInitial }}</div>
+        </div>
+        <span class="collab-trigger-name">{{ collabTriggerRoomLabel }}</span>
+        <span class="collab-breathing-dot"></span>
+      </template>
+      <template v-else>
+        <svg
+          class="collab-trigger-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+        <span class="collab-trigger-name">开启协作</span>
+      </template>
     </div>
 
     <div
@@ -996,7 +1149,7 @@ onUnmounted(() => {
         </svg>
         <span>删除</span>
       </button>
-      <button class="menu-item menu-item-danger" @click="requestClearAll">
+      <button class="menu-item menu-item-danger" :disabled="collabDisableClear" @click="requestClearAll">
         <svg
           class="menu-item-icon"
           viewBox="0 0 24 24"
@@ -1715,7 +1868,11 @@ onUnmounted(() => {
           </svg>
           <span>新建项目</span>
         </button>
-        <button v-if="hasActiveProject" class="side-menu-item" @click="handleEditProject">
+        <button
+          v-if="hasActiveProject && (!currentRoom || isRoomCreator)"
+          class="side-menu-item"
+          @click="handleEditProject"
+        >
           <svg
             class="side-menu-icon"
             viewBox="0 0 24 24"
@@ -1731,7 +1888,7 @@ onUnmounted(() => {
           <span>编辑项目</span>
         </button>
         <button
-          v-if="hasActiveProject"
+          v-if="hasActiveProject && !currentRoom"
           class="side-menu-item side-menu-item-danger"
           @click="handleExitProject"
         >
@@ -1751,7 +1908,7 @@ onUnmounted(() => {
           <span>退出项目</span>
         </button>
         <div class="side-menu-divider"></div>
-        <button class="side-menu-item" @click="handleExportScene">
+        <button class="side-menu-item" :disabled="collabDisableExport" @click="handleExportScene">
           <svg
             class="side-menu-icon"
             viewBox="0 0 24 24"
@@ -1767,7 +1924,7 @@ onUnmounted(() => {
           </svg>
           <span>导出</span>
         </button>
-        <button class="side-menu-item" @click="handleImportScene">
+        <button class="side-menu-item" :disabled="collabDisableImport" @click="handleImportScene">
           <svg
             class="side-menu-icon"
             viewBox="0 0 24 24"
@@ -1835,7 +1992,10 @@ onUnmounted(() => {
 
         <div class="profile-links">
           <button class="profile-link-button" @click="goProfilePage">个人主页</button>
-          <button class="profile-link-button" @click="goProjectListPage">项目列表</button>
+          <div class="profile-link-row">
+            <button class="profile-link-button profile-link-half" @click="goProjectListPage">项目列表</button>
+            <button class="profile-link-button profile-link-half" @click="goRoomListPage">房间列表</button>
+          </div>
         </div>
 
         <div class="profile-actions">
@@ -1853,6 +2013,38 @@ onUnmounted(() => {
       </template>
     </div>
   </Teleport>
+
+  <!-- 未登录协作提示弹窗 -->
+  <Teleport to="body">
+    <div
+      v-show="collabLoginPromptOpen"
+      ref="collabLoginPromptRef"
+      class="collab-login-prompt"
+      :style="collabLoginPromptStyle"
+    >
+      <div class="collab-login-prompt-title">需要登录</div>
+      <div class="collab-login-prompt-subtitle">登录后才能开启协作房间</div>
+      <div class="collab-login-prompt-actions">
+        <button class="collab-login-prompt-btn collab-login-prompt-btn-primary" @click="goCollabLogin">
+          去登录
+        </button>
+        <button class="collab-login-prompt-btn" @click="goCollabRegister">
+          注册账号
+        </button>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- 协作管理面板（创建/加入对话框 + 房间管理弹窗） -->
+  <CollabPanel
+    v-model:dialog-open="collabDialogOpen"
+    v-model:panel-open="collabPanelOpen"
+    :trigger-el="collabTriggerRef"
+    :current-project-id="currentProjectId"
+    @join="handleCollabJoin"
+    @leave="handleCollabLeave"
+    @project-created="(id: string) => emit('project-created', id)"
+  />
 </template>
 
 <style scoped>
@@ -2027,33 +2219,11 @@ button.is-active {
   color: #ffb3b3;
 }
 
-.collab-box {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 4px;
-  align-self: center;
-}
-
-.room-input {
-  background: #222;
-  border: 1px solid #444;
-  color: #fff;
-  padding: 4px 8px;
-  margin-right: 4px;
-  width: 100px;
-}
-
-.room-input:disabled {
-  color: #666;
-  background: #111;
-  border-color: #333;
-}
-
-.peer-count {
-  margin-left: 8px;
-  color: #43f260;
-  font-family: monospace;
+.menu-item:disabled,
+.side-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .toolbar-scrollable::-webkit-scrollbar {
@@ -2097,6 +2267,132 @@ button.is-active {
 .profile-trigger.is-open {
   border-color: #43f260;
   box-shadow: 0 0 0 2px rgba(67, 242, 96, 0.12);
+}
+
+/* 协作触发按钮：与 profile-trigger 风格一致 */
+.collab-trigger {
+  height: 36px;
+  border: 1px solid #3f3f3f;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #2a2a2a 0%, #242424 100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 8px;
+  align-self: center;
+  color: #ececec;
+  font-size: 13px;
+  white-space: nowrap;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.collab-trigger:hover,
+.collab-trigger.is-open {
+  border-color: #43f260;
+  box-shadow: 0 0 0 2px rgba(67, 242, 96, 0.12);
+}
+
+/* 已连接状态：呼吸式绿色边框 */
+.collab-trigger.is-connected {
+  position: relative;
+  padding: 4px 12px 4px 4px;
+  border-color: #43f260;
+  animation: collab-border-breathing 1.8s ease-in-out infinite;
+}
+
+@keyframes collab-border-breathing {
+  0%,
+  100% {
+    border-color: rgba(67, 242, 96, 0.6);
+    box-shadow: 0 0 4px rgba(67, 242, 96, 0.3);
+  }
+  50% {
+    border-color: rgba(67, 242, 96, 1);
+    box-shadow: 0 0 10px rgba(67, 242, 96, 0.7);
+  }
+}
+
+.collab-trigger-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #43f260;
+}
+
+.collab-trigger-name {
+  max-width: 80px;
+  color: #ececec;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 创建者头像容器 */
+.collab-trigger-avatar {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #4d4d4d;
+  background: #1c1c1c;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.collab-trigger-avatar .avatar-image {
+  border-radius: 50%;
+}
+
+.collab-trigger-avatar .avatar-fallback {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 右下角呼吸式绿色圆点：定位在按钮右下角边框上，表示已经在协作房间中 */
+.collab-breathing-dot {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #43f260;
+  border: 2px solid #1e1e1e;
+  box-shadow: 0 0 4px rgba(67, 242, 96, 0.6);
+  animation: collab-breathing 1.8s ease-in-out infinite;
+  z-index: 2;
+}
+
+@keyframes collab-breathing {
+  0%,
+  100% {
+    box-shadow:
+      0 0 4px rgba(67, 242, 96, 0.6),
+      0 0 0 0 rgba(67, 242, 96, 0.5);
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    box-shadow:
+      0 0 8px rgba(67, 242, 96, 0.9),
+      0 0 0 4px rgba(67, 242, 96, 0);
+    transform: scale(1.15);
+    opacity: 0.85;
+  }
 }
 
 .profile-name {
@@ -2157,6 +2453,67 @@ button.is-active {
   line-height: 1.5;
 }
 
+/* 未登录协作提示弹窗 */
+.collab-login-prompt {
+  position: fixed;
+  z-index: 1200;
+  padding: 14px;
+  border: 1px solid #3d3d3d;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #1f1f1f 0%, #191919 100%);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.collab-login-prompt-title {
+  color: #f3f3f3;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.collab-login-prompt-subtitle {
+  color: #a0a0a0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.collab-login-prompt-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.collab-login-prompt-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #3d3d3d;
+  border-radius: 8px;
+  background: #2a2a2a;
+  color: #e0e0e0;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.collab-login-prompt-btn:hover {
+  background: #333;
+  border-color: #4a4a4a;
+}
+
+.collab-login-prompt-btn-primary {
+  background: #43f260;
+  color: #1a1a1a;
+  border-color: #43f260;
+}
+
+.collab-login-prompt-btn-primary:hover {
+  background: #5af97a;
+  border-color: #5af97a;
+}
+
 .profile-summary {
   display: flex;
   align-items: center;
@@ -2191,6 +2548,16 @@ button.is-active {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.profile-link-row {
+  display: flex;
+  gap: 6px;
+}
+
+.profile-link-half {
+  flex: 1 1 0;
+  text-align: center !important;
 }
 
 .profile-link-button,
@@ -2398,10 +2765,6 @@ button.is-active {
     padding: 5px 8px;
   }
 
-  .room-input {
-    width: 84px;
-  }
-
   .divider {
     width: 1px;
     min-width: 1px;
@@ -2431,16 +2794,6 @@ button.is-active {
 
   .hamburger-btn {
     padding: 4px 6px;
-  }
-
-  .room-input {
-    width: 70px;
-    padding: 3px 5px;
-    font-size: 11px;
-  }
-
-  .collab-box {
-    gap: 2px;
   }
 
   .divider {
@@ -2483,6 +2836,32 @@ button.is-active {
   .profile-name {
     max-width: 70px;
     font-size: 11px;
+  }
+
+  .collab-trigger {
+    height: 32px;
+    padding: 3px 10px;
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .collab-trigger.is-connected {
+    padding: 3px 8px 3px 3px;
+  }
+
+  .collab-trigger-avatar {
+    width: 24px;
+    height: 24px;
+  }
+
+  .collab-trigger-name {
+    max-width: 70px;
+    font-size: 11px;
+  }
+
+  .collab-trigger-icon {
+    width: 15px;
+    height: 15px;
   }
 }
 

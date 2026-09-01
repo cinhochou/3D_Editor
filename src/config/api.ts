@@ -8,10 +8,10 @@ const API_CONFIG = {
     },
   },
   production: {
-    baseUrl: 'https://api.3deditor.com/api',
+    baseUrl: 'https://amara-subtwined-admiringly.ngrok-free.dev/api',
     services: {
-      user: 'https://service-user.3deditor.com/v3/api-docs',
-      auth: 'https://service-auth.3deditor.com/v3/api-docs',
+      user: 'https://amara-subtwined-admiringly.ngrok-free.dev/v3/api-docs',
+      auth: 'https://amara-subtwined-admiringly.ngrok-free.dev/v3/api-docs',
     },
   },
 }

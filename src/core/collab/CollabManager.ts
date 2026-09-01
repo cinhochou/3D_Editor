@@ -16,7 +16,10 @@ import { Sphere3 } from '../geometry/Sphere3'
 import { Cone3, type ConeType } from '../geometry/Cone3'
 import { Cylinder3, type CylinderType } from '../geometry/Cylinder3'
 import { CylinderConstraint } from '../constraints/CylinderConstraint'
-import { ObjectConstrainedPointConstraint, type ParametricData } from '../constraints/ObjectConstrainedPointConstraint'
+import {
+  ObjectConstrainedPointConstraint,
+  type ParametricData,
+} from '../constraints/ObjectConstrainedPointConstraint'
 import { PlanarPolygon } from '../geometry/PlanarPolygon'
 import { Net, type NetSolidType, type NetFaceTransform, type NetMode } from '../geometry/Net'
 import { Vec3 } from '../geometry/Vec3'
@@ -30,10 +33,7 @@ import {
   isIntersectionTargetType,
   type IntersectionTargetRef,
 } from '../geometry/IntersectionPoint3'
-import {
-  importScene,
-  type SerializedScene,
-} from '../editor/SceneSerializer'
+import { importScene, type SerializedScene } from '../editor/SceneSerializer'
 
 export type SharedHistoryEntry = {
   id: string
@@ -58,7 +58,19 @@ export type CollabStatus = {
 }
 
 type LiveLabelTarget = {
-  type: 'point' | 'line' | 'straightLine' | 'perpendicularLine' | 'parallelLine' | 'ray' | 'vector' | 'circle' | 'sphere' | 'cone' | 'cylinder' | 'face'
+  type:
+    | 'point'
+    | 'line'
+    | 'straightLine'
+    | 'perpendicularLine'
+    | 'parallelLine'
+    | 'ray'
+    | 'vector'
+    | 'circle'
+    | 'sphere'
+    | 'cone'
+    | 'cylinder'
+    | 'face'
   geoId: string
 }
 
@@ -127,9 +139,10 @@ export class CollabManager {
   private static readonly LIVE_SYNC_THROTTLE_MS = 33
   private static readonly WORLD_ROTATION_OWNER_TIMEOUT_MS = 1500
   private static readonly WORLD_ROTATION_OWNER_HEARTBEAT_MS = 500
-  private static readonly LATENCY_SAMPLE_INTERVAL_MS = 2000
+  private static readonly LATENCY_SAMPLE_INTERVAL_MS = 10_000 // 10秒（避免 N 人房间 O(N²) awareness 风暴）
   // 本地 websocket 服务不可用时，回退到这个公网协作地址。
-  private static readonly FALLBACK_SERVER_URL = 'wss://kraig-scarabaeiform-zealously.ngrok-free.dev'
+  //private static readonly FALLBACK_SERVER_URL = 'wss://kraig-scarabaeiform-zealously.ngrok-free.dev'
+  private static readonly FALLBACK_SERVER_URL = 'wss://47.239.188.55/signal'
 
   private ydoc: Y.Doc
   private provider: WebsocketProvider | null = null
@@ -162,7 +175,9 @@ export class CollabManager {
   private pointsObserver: ((event: Y.YMapEvent<PointSharedMap>) => void) | null = null
   private linesObserver: ((event: Y.YMapEvent<LineSharedMap>) => void) | null = null
   private straightLinesObserver: ((event: Y.YMapEvent<StraightLineSharedMap>) => void) | null = null
-  private perpendicularLinesObserver: ((event: Y.YMapEvent<PerpendicularLineSharedMap>) => void) | null = null
+  private perpendicularLinesObserver:
+    | ((event: Y.YMapEvent<PerpendicularLineSharedMap>) => void)
+    | null = null
   private parallelLinesObserver: ((event: Y.YMapEvent<ParallelLineSharedMap>) => void) | null = null
   private raysObserver: ((event: Y.YMapEvent<RaySharedMap>) => void) | null = null
   private vectorsObserver: ((event: Y.YMapEvent<VectorSharedMap>) => void) | null = null
@@ -171,14 +186,18 @@ export class CollabManager {
   private conesObserver: ((event: Y.YMapEvent<ConeSharedMap>) => void) | null = null
   private cylindersObserver: ((event: Y.YMapEvent<CylinderSharedMap>) => void) | null = null
   private intersectionsObserver: ((event: Y.YMapEvent<IntersectionSharedMap>) => void) | null = null
-  private objectConstrainedPointsObserver: ((event: Y.YMapEvent<ObjectConstrainedPointSharedMap>) => void) | null = null
+  private objectConstrainedPointsObserver:
+    | ((event: Y.YMapEvent<ObjectConstrainedPointSharedMap>) => void)
+    | null = null
   private facesObserver: ((event: Y.YMapEvent<FaceSharedMap>) => void) | null = null
   private cubesObserver: ((event: Y.YMapEvent<CubeSharedMap>) => void) | null = null
-  private regularPolygonsObserver: ((event: Y.YMapEvent<RegularPolygonSharedMap>) => void) | null = null
+  private regularPolygonsObserver: ((event: Y.YMapEvent<RegularPolygonSharedMap>) => void) | null =
+    null
   private prismsObserver: ((event: Y.YMapEvent<PrismSharedMap>) => void) | null = null
   private pyramidsObserver: ((event: Y.YMapEvent<PyramidSharedMap>) => void) | null = null
   private netsObserver: ((event: Y.YMapEvent<NetSharedMap>) => void) | null = null
-  private worldTransformObserver: ((event: Y.YMapEvent<string | number | boolean>) => void) | null = null
+  private worldTransformObserver: ((event: Y.YMapEvent<string | number | boolean>) => void) | null =
+    null
   private readonly pointRecordCleanup = new Map<string, () => void>()
   private readonly lineRecordCleanup = new Map<string, () => void>()
   private readonly straightLineRecordCleanup = new Map<string, () => void>()
@@ -209,7 +228,14 @@ export class CollabManager {
   private liveSyncTimer: number | null = null
   private liveSyncPending = false
   private latencyTimer: number | null = null
+  // 节流 markAllRenderDirty：批量处理远端 record 变更，避免每条都触发全量重渲
+  private renderDirtyTimer: number | null = null
+  private renderDirtyPending = false
   private readonly latencySamples = new Map<string, number>()
+  // Awareness state is retained until it is replaced.  Keep track of handled
+  // pings so an unrelated awareness update cannot make us answer the same
+  // ping again (which otherwise creates a multi-peer pong feedback loop).
+  private readonly handledLatencyPingIds = new Map<string, number>()
   private providerCleanup: Array<() => void> = []
   private readonly serverUrls: string[]
   private localUserLabel: string | null = null
@@ -275,7 +301,8 @@ export class CollabManager {
     this.yCones = this.ydoc.getMap<ConeSharedMap>('cones')
     this.yCylinders = this.ydoc.getMap<CylinderSharedMap>('cylinders')
     this.yIntersections = this.ydoc.getMap<IntersectionSharedMap>('intersections')
-    this.yObjectConstrainedPoints = this.ydoc.getMap<ObjectConstrainedPointSharedMap>('objectConstrainedPoints')
+    this.yObjectConstrainedPoints =
+      this.ydoc.getMap<ObjectConstrainedPointSharedMap>('objectConstrainedPoints')
     this.yFaces = this.ydoc.getMap<FaceSharedMap>('faces')
     this.yCubes = this.ydoc.getMap<CubeSharedMap>('cubes')
     this.yRegularPolygons = this.ydoc.getMap<RegularPolygonSharedMap>('regularPolygons')
@@ -370,7 +397,9 @@ export class CollabManager {
     if (typeof raw !== 'string') return []
     try {
       const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === 'string')
+        : []
     } catch {
       return []
     }
@@ -414,9 +443,7 @@ export class CollabManager {
             ): item is {
               pointId: string
               angleIndex: number
-            } =>
-              typeof item?.pointId === 'string' &&
-              typeof item?.angleIndex === 'number',
+            } => typeof item?.pointId === 'string' && typeof item?.angleIndex === 'number',
           )
         : []
     } catch {
@@ -436,9 +463,7 @@ export class CollabManager {
             ): item is {
               pointId: string
               baseIndex: number
-            } =>
-              typeof item?.pointId === 'string' &&
-              typeof item?.baseIndex === 'number',
+            } => typeof item?.pointId === 'string' && typeof item?.baseIndex === 'number',
           )
         : []
     } catch {
@@ -454,7 +479,9 @@ export class CollabManager {
     return this.yWorldTransform
   }
 
-  private readSharedWorldRotationState(record: WorldTransformSharedMap | null = null): SharedWorldRotationState {
+  private readSharedWorldRotationState(
+    record: WorldTransformSharedMap | null = null,
+  ): SharedWorldRotationState {
     const source = record ?? this.yWorldTransform ?? null
     const ownerClientId = source ? this.readNullableNumber(source, 'ownerClientId') : null
     return {
@@ -719,11 +746,18 @@ export class CollabManager {
     // 1. 优先使用环境变量里显式配置的地址
     // 2. 否则使用当前站点主机上的本地/默认 websocket 服务
     // 3. 最后回退到公网备用地址
-    const candidates = configuredUrl
-      ? [configuredUrl]
-      : [
-          `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname || 'localhost'}:1234`,
-        ]
+    let candidates: string[]
+    if (configuredUrl) {
+      candidates = [configuredUrl]
+    } else if (import.meta.env.MODE === 'production') {
+      // 生产环境直接使用固定公网域名，避免先尝试「站点主机名:1234」
+      // 造成 3 秒超时后才回退。
+      candidates = [CollabManager.FALLBACK_SERVER_URL]
+    } else {
+      candidates = [
+        `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname || 'localhost'}:1234`,
+      ]
+    }
 
     candidates.push(CollabManager.FALLBACK_SERVER_URL)
     return [...new Set(candidates.map((url) => CollabManager.normalizeServerUrl(url)))]
@@ -741,7 +775,7 @@ export class CollabManager {
     return this.latencyMs
   }
 
-  async joinRoom(roomName: string) {
+  async joinRoom(roomName: string, options?: { wsUrl?: string; ticket?: string }) {
     const normalizedRoomName = roomName.trim()
     if (!normalizedRoomName) throw new Error('roomName is empty')
 
@@ -756,11 +790,33 @@ export class CollabManager {
     this.emitStatus()
 
     // 按顺序尝试每个候选 websocket 地址，只要有一个成功完成同步就停止继续回退。
+    // 后端返回的 wsUrl 优先尝试；无论成功与否，都会继续兜底到本地配置的候选地址列表，
+    // 这样本地测试（localhost:1234）和远端生产（ngrok wss）之间可以自动切换。
+    const candidateUrls: string[] = []
+    const seen = new Set<string>()
+    const pushCandidate = (raw: string) => {
+      const normalized = CollabManager.normalizeServerUrl(raw)
+      if (!seen.has(normalized)) {
+        seen.add(normalized)
+        candidateUrls.push(normalized)
+      }
+    }
+    if (options?.wsUrl) pushCandidate(options.wsUrl)
+    this.serverUrls.forEach(pushCandidate)
+
+    // y-websocket WebsocketProvider 的 params 选项：附加到 ws URL 的查询参数
+    const wsParams = options?.ticket ? { ticket: options.ticket } : undefined
     const timeoutMs = 3_000
     let lastError: unknown = null
 
-    for (const serverUrl of this.serverUrls) {
-      this.provider = new WebsocketProvider(serverUrl, normalizedRoomName, this.ydoc)
+    for (const serverUrl of candidateUrls) {
+      this.provider = new WebsocketProvider(serverUrl, normalizedRoomName, this.ydoc, {
+        params: wsParams,
+        // 每 15 秒请求服务器重发完整状态，防止单协作者长时间无消息导致状态不同步
+        resyncInterval: 15_000,
+        // 缩短重连退避上限，断线后更快恢复
+        maxBackoffTime: 3_000,
+      })
 
       try {
         const provider = this.provider
@@ -823,6 +879,12 @@ export class CollabManager {
     this.liveSyncPending = false
     this.clearDirtyState()
 
+    if (this.renderDirtyTimer !== null) {
+      window.clearTimeout(this.renderDirtyTimer)
+      this.renderDirtyTimer = null
+    }
+    this.renderDirtyPending = false
+
     this.roomName = null
     this.connecting = false
     this.connected = false
@@ -884,13 +946,19 @@ export class CollabManager {
       this.latencyTimer = null
     }
     this.latencySamples.clear()
+    this.handledLatencyPingIds.clear()
     this.setLatencyMs(null)
   }
 
   private sendLatencyPing(provider: WebsocketProvider) {
     if (this.roomName === null || !provider.synced) return
+    const now = performance.now()
+    // A disconnected peer may never answer. Bound the pending sample cache.
+    for (const [id, startedAt] of this.latencySamples) {
+      if (now - startedAt > 30_000) this.latencySamples.delete(id)
+    }
     const id = `${this.getLocalClientId()}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    this.latencySamples.set(id, performance.now())
+    this.latencySamples.set(id, now)
     provider.awareness.setLocalStateField('latencyPing', {
       id,
       senderClientId: this.getLocalClientId(),
@@ -923,11 +991,20 @@ export class CollabManager {
 
   private handleLatencyAwarenessChange(provider: WebsocketProvider) {
     const localClientId = this.getLocalClientId()
+    const now = performance.now()
+    for (const [id, handledAt] of this.handledLatencyPingIds) {
+      if (now - handledAt > 30_000) this.handledLatencyPingIds.delete(id)
+    }
     provider.awareness.getStates().forEach((state, clientId) => {
       if (clientId === localClientId) return
 
       const ping = this.readAwarenessLatencyMessage(state.latencyPing)
-      if (ping && ping.senderClientId !== localClientId) {
+      if (
+        ping &&
+        ping.senderClientId !== localClientId &&
+        !this.handledLatencyPingIds.has(ping.id)
+      ) {
+        this.handledLatencyPingIds.set(ping.id, now)
         provider.awareness.setLocalStateField('latencyPong', {
           id: ping.id,
           senderClientId: ping.senderClientId,
@@ -982,7 +1059,15 @@ export class CollabManager {
   private captureLocalSnapshot(): LocalSceneSnapshot {
     return {
       points: [...this.scene.points.values()].filter(
-        (point) => !point.locked || point.circleRole === 'center' || point.sphereRole === 'center' || point.sphereRole === 'radius' || point.coneRole === 'baseCenter' || point.coneRole === 'apex' || point.cylinderRole === 'bottomCenter' || point.cylinderRole === 'topCenter',
+        (point) =>
+          !point.locked ||
+          point.circleRole === 'center' ||
+          point.sphereRole === 'center' ||
+          point.sphereRole === 'radius' ||
+          point.coneRole === 'baseCenter' ||
+          point.coneRole === 'apex' ||
+          point.cylinderRole === 'bottomCenter' ||
+          point.cylinderRole === 'topCenter',
       ),
       lines: [...this.scene.lines.values()],
       straightLines: [...this.scene.straightLines.values()],
@@ -1013,8 +1098,7 @@ export class CollabManager {
         (constraint): constraint is PyramidConstraint => constraint instanceof PyramidConstraint,
       ),
       cylinderConstraints: [...this.scene.cylinderConstraints.values()].filter(
-        (constraint): constraint is CylinderConstraint =>
-          constraint instanceof CylinderConstraint,
+        (constraint): constraint is CylinderConstraint => constraint instanceof CylinderConstraint,
       ),
       perpendicularLineConstraints: [...this.scene.perpendicularLineConstraints.values()].filter(
         (constraint): constraint is PerpendicularLineConstraint =>
@@ -1046,7 +1130,17 @@ export class CollabManager {
     this.scene.faces.clear()
     this.scene.nets.clear()
     this.scene.points.forEach((point, id) => {
-      if (!point.locked || point.circleRole === 'center' || point.sphereRole === 'center' || point.sphereRole === 'radius' || point.coneRole === 'baseCenter' || point.coneRole === 'apex' || point.cylinderRole === 'bottomCenter' || point.cylinderRole === 'topCenter') this.scene.points.delete(id)
+      if (
+        !point.locked ||
+        point.circleRole === 'center' ||
+        point.sphereRole === 'center' ||
+        point.sphereRole === 'radius' ||
+        point.coneRole === 'baseCenter' ||
+        point.coneRole === 'apex' ||
+        point.cylinderRole === 'bottomCenter' ||
+        point.cylinderRole === 'topCenter'
+      )
+        this.scene.points.delete(id)
     })
     this.scene.clearAllConstraints()
     this.scene.selection.clear()
@@ -1066,14 +1160,24 @@ export class CollabManager {
     snapshot.cylinders.forEach((cylinder) => this.scene.addCylinder(cylinder))
     snapshot.faces.forEach((face) => this.scene.addFace(face))
     snapshot.intersections.forEach((constraint) => this.scene.addIntersectionConstraint(constraint))
-    snapshot.objectConstrainedPoints.forEach((constraint) => this.scene.addObjectConstrainedPointConstraint(constraint))
+    snapshot.objectConstrainedPoints.forEach((constraint) =>
+      this.scene.addObjectConstrainedPointConstraint(constraint),
+    )
     snapshot.cubes.forEach((cube) => this.scene.addCubeConstraint(cube))
-    snapshot.regularPolygons.forEach((constraint) => this.scene.addRegularPolygonConstraint(constraint))
+    snapshot.regularPolygons.forEach((constraint) =>
+      this.scene.addRegularPolygonConstraint(constraint),
+    )
     snapshot.prisms.forEach((prism) => this.scene.addPrismConstraint(prism))
     snapshot.pyramids.forEach((pyramid) => this.scene.addPyramidConstraint(pyramid))
-    snapshot.cylinderConstraints.forEach((constraint) => this.scene.addCylinderConstraint(constraint))
-    snapshot.perpendicularLineConstraints.forEach((constraint) => this.scene.addPerpendicularLineConstraint(constraint))
-    snapshot.parallelLineConstraints.forEach((constraint) => this.scene.addParallelLineConstraint(constraint))
+    snapshot.cylinderConstraints.forEach((constraint) =>
+      this.scene.addCylinderConstraint(constraint),
+    )
+    snapshot.perpendicularLineConstraints.forEach((constraint) =>
+      this.scene.addPerpendicularLineConstraint(constraint),
+    )
+    snapshot.parallelLineConstraints.forEach((constraint) =>
+      this.scene.addParallelLineConstraint(constraint),
+    )
     snapshot.nets.forEach((net) => this.scene.addNet(net))
   }
 
@@ -1375,7 +1479,10 @@ export class CollabManager {
       }
     })
     this.scene.spheres.forEach((sphere, id) => {
-      if (sphere.centerPoint.id === pointId || (sphere.radiusPoint && sphere.radiusPoint.id === pointId)) {
+      if (
+        sphere.centerPoint.id === pointId ||
+        (sphere.radiusPoint && sphere.radiusPoint.id === pointId)
+      ) {
         this.markSphereDirty(id)
       }
     })
@@ -1440,17 +1547,25 @@ export class CollabManager {
       if (pl.p1.id === pointId || pl.p2.id === pointId) return true
     }
     for (const circle of this.scene.circles.values()) {
-      if (circle.id !== excludeCircleId &&
-        (circle.p1.id === pointId || circle.p2.id === pointId || circle.p3.id === pointId)) return true
+      if (
+        circle.id !== excludeCircleId &&
+        (circle.p1.id === pointId || circle.p2.id === pointId || circle.p3.id === pointId)
+      )
+        return true
     }
     for (const sphere of this.scene.spheres.values()) {
-      if (sphere.centerPoint.id === pointId || (sphere.radiusPoint && sphere.radiusPoint.id === pointId)) return true
+      if (
+        sphere.centerPoint.id === pointId ||
+        (sphere.radiusPoint && sphere.radiusPoint.id === pointId)
+      )
+        return true
     }
     for (const cone of this.scene.cones.values()) {
       if (cone.baseCenterPoint.id === pointId || cone.apexPoint.id === pointId) return true
     }
     for (const cylinder of this.scene.cylinders.values()) {
-      if (cylinder.bottomCenterPoint.id === pointId || cylinder.topCenterPoint.id === pointId) return true
+      if (cylinder.bottomCenterPoint.id === pointId || cylinder.topCenterPoint.id === pointId)
+        return true
     }
     for (const face of this.scene.faces.values()) {
       if (face.includesPoint(pointId)) return true
@@ -1472,9 +1587,36 @@ export class CollabManager {
     if (centerPoint) this.markPointDirty(centerPoint.id)
   }
 
+  /**
+   * 节流版 markAllRenderDirty：将多次远端 record 变更的渲染标记合并到一帧内执行。
+   * applyXxxRecord 中调用此方法替代 this.scheduleRenderDirty()，
+   * 避免多人协作时每条远端变更都触发全量重渲。
+   */
+  private scheduleRenderDirty() {
+    if (this.renderDirtyPending) return
+    this.renderDirtyPending = true
+    if (this.renderDirtyTimer !== null) return
+    this.renderDirtyTimer = window.setTimeout(() => {
+      this.renderDirtyTimer = null
+      if (!this.renderDirtyPending) return
+      this.renderDirtyPending = false
+      this.scene.markAllRenderDirty()
+    }, 16) // ~1帧，批量合并同一帧内的多次标记
+  }
+
   markSceneDirty() {
     this.scene.points.forEach((point, id) => {
-      if (!point.locked || point.circleRole === 'center' || point.sphereRole === 'center' || point.sphereRole === 'radius' || point.coneRole === 'baseCenter' || point.coneRole === 'apex' || point.cylinderRole === 'bottomCenter' || point.cylinderRole === 'topCenter' || id === Scene.ORIGIN_ID) {
+      if (
+        !point.locked ||
+        point.circleRole === 'center' ||
+        point.sphereRole === 'center' ||
+        point.sphereRole === 'radius' ||
+        point.coneRole === 'baseCenter' ||
+        point.coneRole === 'apex' ||
+        point.cylinderRole === 'bottomCenter' ||
+        point.cylinderRole === 'topCenter' ||
+        id === Scene.ORIGIN_ID
+      ) {
         this.markPointDirty(id)
       }
     })
@@ -1493,7 +1635,8 @@ export class CollabManager {
       if (constraint instanceof IntersectionPointConstraint) this.markIntersectionDirty(id)
     })
     this.scene.objectConstrainedPointConstraints.forEach((constraint, id) => {
-      if (constraint instanceof ObjectConstrainedPointConstraint) this.markObjectConstrainedPointDirty(id)
+      if (constraint instanceof ObjectConstrainedPointConstraint)
+        this.markObjectConstrainedPointDirty(id)
     })
     this.scene.cubeConstraints.forEach((constraint, id) => {
       if (constraint instanceof CubeConstraint) this.markCubeDirty(id)
@@ -1546,7 +1689,8 @@ export class CollabManager {
       if (!this.scene.intersectionConstraints.has(id)) this.markIntersectionDeleted(id)
     }
     for (const id of [...this.yObjectConstrainedPoints.keys()]) {
-      if (!this.scene.objectConstrainedPointConstraints.has(id)) this.markObjectConstrainedPointDeleted(id)
+      if (!this.scene.objectConstrainedPointConstraints.has(id))
+        this.markObjectConstrainedPointDeleted(id)
     }
     for (const id of [...this.yFaces.keys()]) {
       if (!this.scene.faces.has(id)) this.markFaceDeleted(id)
@@ -1727,6 +1871,14 @@ export class CollabManager {
 
       const handleStatus = () => {
         this.updateConnectionStateFromProvider(provider)
+        // 连接被服务器关闭（如票据验证失败 close 4001/4003）时立即失败，
+        // 避免傻等满整个超时时间才回退到下一个候选地址。
+        // 用 provider.wsconnecting 区分"正在连接"和"已断开"：
+        // 既没在连接中也没连上，说明连接被拒绝/关闭了。
+        if (!provider.wsconnected && !provider.wsconnecting && !done) {
+          fail(new Error('connection closed by server (ticket may be invalid)'))
+          return
+        }
         scheduleSettle()
       }
 
@@ -1748,7 +1900,8 @@ export class CollabManager {
     if (this.pointsObserver) this.yPoints.unobserve(this.pointsObserver)
     if (this.linesObserver) this.yLines.unobserve(this.linesObserver)
     if (this.straightLinesObserver) this.yStraightLines.unobserve(this.straightLinesObserver)
-    if (this.perpendicularLinesObserver) this.yPerpendicularLines.unobserve(this.perpendicularLinesObserver)
+    if (this.perpendicularLinesObserver)
+      this.yPerpendicularLines.unobserve(this.perpendicularLinesObserver)
     if (this.parallelLinesObserver) this.yParallelLines.unobserve(this.parallelLinesObserver)
     if (this.raysObserver) this.yRays.unobserve(this.raysObserver)
     if (this.vectorsObserver) this.yVectors.unobserve(this.vectorsObserver)
@@ -1757,7 +1910,8 @@ export class CollabManager {
     if (this.conesObserver) this.yCones.unobserve(this.conesObserver)
     if (this.cylindersObserver) this.yCylinders.unobserve(this.cylindersObserver)
     if (this.intersectionsObserver) this.yIntersections.unobserve(this.intersectionsObserver)
-    if (this.objectConstrainedPointsObserver) this.yObjectConstrainedPoints.unobserve(this.objectConstrainedPointsObserver)
+    if (this.objectConstrainedPointsObserver)
+      this.yObjectConstrainedPoints.unobserve(this.objectConstrainedPointsObserver)
     if (this.facesObserver) this.yFaces.unobserve(this.facesObserver)
     if (this.cubesObserver) this.yCubes.unobserve(this.cubesObserver)
     if (this.regularPolygonsObserver) this.yRegularPolygons.unobserve(this.regularPolygonsObserver)
@@ -1784,7 +1938,8 @@ export class CollabManager {
     this.yCones = this.ydoc.getMap<ConeSharedMap>('cones')
     this.yCylinders = this.ydoc.getMap<CylinderSharedMap>('cylinders')
     this.yIntersections = this.ydoc.getMap<IntersectionSharedMap>('intersections')
-    this.yObjectConstrainedPoints = this.ydoc.getMap<ObjectConstrainedPointSharedMap>('objectConstrainedPoints')
+    this.yObjectConstrainedPoints =
+      this.ydoc.getMap<ObjectConstrainedPointSharedMap>('objectConstrainedPoints')
     this.yFaces = this.ydoc.getMap<FaceSharedMap>('faces')
     this.yCubes = this.ydoc.getMap<CubeSharedMap>('cubes')
     this.yRegularPolygons = this.ydoc.getMap<RegularPolygonSharedMap>('regularPolygons')
@@ -1829,7 +1984,10 @@ export class CollabManager {
       this.scene.selection.points.delete(id)
       return
     }
-    if (point?.cylinderId && (point.cylinderRole === 'bottomCenter' || point.cylinderRole === 'topCenter')) {
+    if (
+      point?.cylinderId &&
+      (point.cylinderRole === 'bottomCenter' || point.cylinderRole === 'topCenter')
+    ) {
       if (!this.yCylinders.has(point.cylinderId)) {
         this.removeCylinderFromScene(point.cylinderId)
       }
@@ -1934,14 +2092,17 @@ export class CollabManager {
         }
       }
     })
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private removeSphereFromScene(id: string) {
     this.scene.spheres.delete(id)
     this.scene.selection.spheres.delete(id)
     this.scene.points.forEach((point, pointId) => {
-      if (point.sphereId === id && (point.sphereRole === 'center' || point.sphereRole === 'radius')) {
+      if (
+        point.sphereId === id &&
+        (point.sphereRole === 'center' || point.sphereRole === 'radius')
+      ) {
         if (this.isPointReferencedByOtherGeometry(pointId)) {
           point.sphereId = null
           point.sphereRole = null
@@ -1951,7 +2112,7 @@ export class CollabManager {
         }
       }
     })
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private removeConeFromScene(id: string) {
@@ -1968,7 +2129,7 @@ export class CollabManager {
         }
       }
     })
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private removeCylinderFromScene(id: string) {
@@ -1997,7 +2158,10 @@ export class CollabManager {
     this.scene.cylinders.delete(id)
     this.scene.selection.cylinders.delete(id)
     this.scene.points.forEach((point, pointId) => {
-      if (point.cylinderId === id && (point.cylinderRole === 'bottomCenter' || point.cylinderRole === 'topCenter')) {
+      if (
+        point.cylinderId === id &&
+        (point.cylinderRole === 'bottomCenter' || point.cylinderRole === 'topCenter')
+      ) {
         if (this.isPointReferencedByOtherGeometry(pointId)) {
           point.cylinderId = null
           point.cylinderRole = null
@@ -2007,7 +2171,7 @@ export class CollabManager {
         }
       }
     })
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private reconcileGeometryForPoint(pointId: string) {
@@ -2151,7 +2315,10 @@ export class CollabManager {
     return this.scene.faces.has(target.id)
   }
 
-  private reconcileIntersectionsForTarget(targetType: IntersectionTargetRef['type'], targetId: string) {
+  private reconcileIntersectionsForTarget(
+    targetType: IntersectionTargetRef['type'],
+    targetId: string,
+  ) {
     this.yIntersections.forEach((record, pointId) => {
       const sourceA = this.readIntersectionTarget(record, 'sourceA')
       const sourceB = this.readIntersectionTarget(record, 'sourceB')
@@ -2195,25 +2362,38 @@ export class CollabManager {
     const circleRole = circleRoleValue === 'center' ? circleRoleValue : null
     const regularPolygonId = this.readNullableString(record, 'regularPolygonId')
     const regularPolygonRoleValue = this.readNullableString(record, 'regularPolygonRole')
-    const regularPolygonRole = regularPolygonRoleValue === 'owner' || regularPolygonRoleValue === 'dependent' ? regularPolygonRoleValue : null
+    const regularPolygonRole =
+      regularPolygonRoleValue === 'owner' || regularPolygonRoleValue === 'dependent'
+        ? regularPolygonRoleValue
+        : null
     const prismId = this.readNullableString(record, 'prismId')
     const prismRoleValue = this.readNullableString(record, 'prismRole')
-    const prismRole = prismRoleValue === 'owner' || prismRoleValue === 'dependent' ? prismRoleValue : null
+    const prismRole =
+      prismRoleValue === 'owner' || prismRoleValue === 'dependent' ? prismRoleValue : null
     const pyramidId = this.readNullableString(record, 'pyramidId')
     const pyramidRoleValue = this.readNullableString(record, 'pyramidRole')
-    const pyramidRole = pyramidRoleValue === 'owner' || pyramidRoleValue === 'dependent' ? pyramidRoleValue : null
+    const pyramidRole =
+      pyramidRoleValue === 'owner' || pyramidRoleValue === 'dependent' ? pyramidRoleValue : null
     const sphereId = this.readNullableString(record, 'sphereId')
     const sphereRoleValue = this.readNullableString(record, 'sphereRole')
-    const sphereRole = sphereRoleValue === 'center' || sphereRoleValue === 'radius' ? sphereRoleValue : null
+    const sphereRole =
+      sphereRoleValue === 'center' || sphereRoleValue === 'radius' ? sphereRoleValue : null
     const coneId = this.readNullableString(record, 'coneId')
     const coneRoleValue = this.readNullableString(record, 'coneRole')
-    const coneRole = coneRoleValue === 'baseCenter' || coneRoleValue === 'apex' ? coneRoleValue : null
+    const coneRole =
+      coneRoleValue === 'baseCenter' || coneRoleValue === 'apex' ? coneRoleValue : null
     const cylinderId = this.readNullableString(record, 'cylinderId')
     const cylinderRoleValue = this.readNullableString(record, 'cylinderRole')
-    const cylinderRole = cylinderRoleValue === 'bottomCenter' || cylinderRoleValue === 'topCenter' ? cylinderRoleValue : null
+    const cylinderRole =
+      cylinderRoleValue === 'bottomCenter' || cylinderRoleValue === 'topCenter'
+        ? cylinderRoleValue
+        : null
     const constrainedToType = this.readNullableString(record, 'constrainedToType')
     const constrainedToId = this.readNullableString(record, 'constrainedToId')
-    const constrainedTo = constrainedToType && constrainedToId ? { type: constrainedToType as ConstrainedToRef['type'], id: constrainedToId } : null
+    const constrainedTo =
+      constrainedToType && constrainedToId
+        ? { type: constrainedToType as ConstrainedToRef['type'], id: constrainedToId }
+        : null
 
     if (point) {
       point.name = name
@@ -2258,7 +2438,7 @@ export class CollabManager {
           constraint.computeParametricDataFromPosition(projected)
         }
       }
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -2292,7 +2472,7 @@ export class CollabManager {
     nextPoint.cylinderRole = cylinderRole
     nextPoint.constrainedTo = constrainedTo
     this.scene.addPoint(nextPoint)
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
     this.reconcileGeometryForPoint(id)
   }
 
@@ -2346,12 +2526,13 @@ export class CollabManager {
       line.p1 = p1
       line.p2 = p2
       line.faceOwned = this.readBoolean(record, 'faceOwned', line.faceOwned)
-    line.faceConstraintType = (this.readString(record, 'faceConstraintType', '') || null) as FaceConstraintType | null
-    this.reconcileIntersectionsForTarget('line', id)
-    return
-  }
+      line.faceConstraintType = (this.readString(record, 'faceConstraintType', '') ||
+        null) as FaceConstraintType | null
+      this.reconcileIntersectionsForTarget('line', id)
+      return
+    }
 
-  const newLine = new Line3(
+    const newLine = new Line3(
       id,
       name,
       p1,
@@ -2366,7 +2547,8 @@ export class CollabManager {
       valueVisible,
     )
     newLine.faceOwned = this.readBoolean(record, 'faceOwned', false)
-    newLine.faceConstraintType = (this.readString(record, 'faceConstraintType', '') || null) as FaceConstraintType | null
+    newLine.faceConstraintType = (this.readString(record, 'faceConstraintType', '') ||
+      null) as FaceConstraintType | null
     this.scene.addLine(newLine)
     this.reconcileIntersectionsForTarget('line', id)
   }
@@ -2438,7 +2620,11 @@ export class CollabManager {
   private applyPerpendicularLineRecord(id: string, record: PerpendicularLineSharedMap) {
     const p1Id = this.readString(record, 'p1Id', '')
     const p2Id = this.readString(record, 'p2Id', '')
-    const targetType = this.readString(record, 'targetType', '') as PerpendicularLineTargetRef['type']
+    const targetType = this.readString(
+      record,
+      'targetType',
+      '',
+    ) as PerpendicularLineTargetRef['type']
     const targetId = this.readString(record, 'targetId', '')
     if (!targetType || !targetId) return
     const p1 = this.scene.points.get(p1Id)
@@ -2495,7 +2681,7 @@ export class CollabManager {
       line.p1 = p1
       line.p2 = p2
       line.target = { type: targetType, id: targetId }
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       this.reconcileIntersectionsForTarget('perpendicularLine', id)
       return
     }
@@ -2583,7 +2769,7 @@ export class CollabManager {
       line.p1 = p1
       line.p2 = p2
       line.target = { type: targetType, id: targetId }
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       this.reconcileIntersectionsForTarget('parallelLine', id)
       return
     }
@@ -2605,9 +2791,7 @@ export class CollabManager {
         valueVisible,
       ),
     )
-    this.scene.addParallelLineConstraint(
-      new ParallelLineConstraint(this.scene, id, target),
-    )
+    this.scene.addParallelLineConstraint(new ParallelLineConstraint(this.scene, id, target))
     this.reconcileIntersectionsForTarget('parallelLine', id)
   }
 
@@ -2705,7 +2889,7 @@ export class CollabManager {
       vector.userLocked = userLocked
       vector.p1 = p1
       vector.p2 = p2
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -2751,7 +2935,11 @@ export class CollabManager {
     const visible = this.readBoolean(record, 'visible', circle?.visible ?? true)
     const userLocked = this.readBoolean(record, 'userLocked', circle?.userLocked ?? false)
     const centerVisible = this.readBoolean(record, 'centerVisible', circle?.centerVisible ?? true)
-    const circleTypeValue = this.readString(record, 'circleType', circle?.circleType ?? 'threePoint')
+    const circleTypeValue = this.readString(
+      record,
+      'circleType',
+      circle?.circleType ?? 'threePoint',
+    )
     const circleType: CircleType = circleTypeValue === 'normal' ? 'normal' : 'threePoint'
     const directionTypeRaw = this.readNullableString(record, 'directionType')
     const directionType: DirectionType | null =
@@ -2812,7 +3000,7 @@ export class CollabManager {
         }
       }
       this.syncCircleCenterPointPosition(id)
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -2841,7 +3029,7 @@ export class CollabManager {
       p1.circleRole = 'center'
     }
     this.syncCircleCenterPointPosition(id)
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applySphereRecord(id: string, record: SphereSharedMap) {
@@ -2850,7 +3038,7 @@ export class CollabManager {
     const radiusValue = this.readNumber(record, 'radiusValue', 0)
     const centerPoint = this.scene.points.get(centerPointId)
     if (!centerPoint) return
-    const radiusPoint = radiusPointId ? this.scene.points.get(radiusPointId) ?? null : null
+    const radiusPoint = radiusPointId ? (this.scene.points.get(radiusPointId) ?? null) : null
 
     const sphere = this.scene.spheres.get(id)
     const name = this.readString(record, 'name', sphere?.name ?? '')
@@ -2886,7 +3074,7 @@ export class CollabManager {
         radiusPoint.sphereId = id
         radiusPoint.sphereRole = 'radius'
       }
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -2911,7 +3099,7 @@ export class CollabManager {
       radiusPoint.sphereId = id
       radiusPoint.sphereRole = 'radius'
     }
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyConeRecord(id: string, record: ConeSharedMap) {
@@ -2959,7 +3147,7 @@ export class CollabManager {
       baseCenterPoint.coneRole = 'baseCenter'
       apexPoint.coneId = id
       apexPoint.coneRole = 'apex'
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -2984,7 +3172,7 @@ export class CollabManager {
     baseCenterPoint.coneRole = 'baseCenter'
     apexPoint.coneId = id
     apexPoint.coneRole = 'apex'
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyCylinderRecord(id: string, record: CylinderSharedMap) {
@@ -2992,7 +3180,8 @@ export class CollabManager {
     const topCenterPointId = this.readString(record, 'topCenterPointId', '')
     const radiusValue = this.readNumber(record, 'radiusValue', 0)
     const cylinderTypeValue = this.readString(record, 'cylinderType', 'twoPoint')
-    const cylinderType: CylinderType = cylinderTypeValue === 'normalCircle' ? 'normalCircle' : 'twoPoint'
+    const cylinderType: CylinderType =
+      cylinderTypeValue === 'normalCircle' ? 'normalCircle' : 'twoPoint'
     const normalCircleId = this.readNullableString(record, 'normalCircleId')
     const topNormalCircleId = this.readNullableString(record, 'topNormalCircleId')
     const bottomCenterPoint = this.scene.points.get(bottomCenterPointId)
@@ -3053,7 +3242,7 @@ export class CollabManager {
           new CylinderConstraint(this.scene, id, normalCircleId, topNormalCircleId),
         )
       }
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -3089,7 +3278,7 @@ export class CollabManager {
         new CylinderConstraint(this.scene, id, normalCircleId, topNormalCircleId),
       )
     }
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyIntersectionRecord(id: string, record: IntersectionSharedMap) {
@@ -3106,7 +3295,7 @@ export class CollabManager {
       new IntersectionPointConstraint(this.scene, id, sourceA, sourceB),
     )
     this.scene.requestIntersectionConstraintSolve(id)
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyObjectConstrainedPointRecord(id: string, record: ObjectConstrainedPointSharedMap) {
@@ -3117,14 +3306,30 @@ export class CollabManager {
     const targetId = this.readString(record, 'targetId', '')
     if (!targetType || !targetId) return
     const validTargetTypes = new Set([
-      'line', 'straightLine', 'ray', 'vector', 'circle', 'face', 'sphere',
-      'cone', 'coneBase', 'cylinder', 'cylinderBottom', 'cylinderTop',
-      'perpendicularLine', 'parallelLine',
-      'xAxis', 'yAxis', 'zAxis',
+      'line',
+      'straightLine',
+      'ray',
+      'vector',
+      'circle',
+      'face',
+      'sphere',
+      'cone',
+      'coneBase',
+      'cylinder',
+      'cylinderBottom',
+      'cylinderTop',
+      'perpendicularLine',
+      'parallelLine',
+      'xAxis',
+      'yAxis',
+      'zAxis',
     ])
     if (!validTargetTypes.has(targetType)) return
 
-    const constrainedTo: ConstrainedToRef = { type: targetType as ConstrainedToRef['type'], id: targetId }
+    const constrainedTo: ConstrainedToRef = {
+      type: targetType as ConstrainedToRef['type'],
+      id: targetId,
+    }
     point.constrainedTo = constrainedTo
 
     const pdJson = this.readString(record, 'parametricData', '')
@@ -3147,7 +3352,7 @@ export class CollabManager {
       if (parametricData) constraint.parametricData = parametricData
       this.scene.addObjectConstrainedPointConstraint(constraint)
     }
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyFaceRecord(id: string, record: FaceSharedMap) {
@@ -3182,21 +3387,36 @@ export class CollabManager {
     const cubeId = this.readNullableString(record, 'cubeId')
     const cubeOwnerPointIds = this.readStringArray(record, 'cubeOwnerPointIds')
     const cubeDependentPointIds = this.readStringArray(record, 'cubeDependentPointIds')
-    const isRegularPolygon = this.readBoolean(record, 'isRegularPolygon', face?.isRegularPolygon ?? false)
-    const regularPolygonVertexCount = this.readNumber(record, 'regularPolygonVertexCount', face?.regularPolygonVertexCount ?? 0)
+    const isRegularPolygon = this.readBoolean(
+      record,
+      'isRegularPolygon',
+      face?.isRegularPolygon ?? false,
+    )
+    const regularPolygonVertexCount = this.readNumber(
+      record,
+      'regularPolygonVertexCount',
+      face?.regularPolygonVertexCount ?? 0,
+    )
     const regularPolygonId = this.readNullableString(record, 'regularPolygonId')
     const regularPolygonOwnerPointIds = this.readStringArray(record, 'regularPolygonOwnerPointIds')
-    const regularPolygonDependentPointIds = this.readStringArray(record, 'regularPolygonDependentPointIds')
+    const regularPolygonDependentPointIds = this.readStringArray(
+      record,
+      'regularPolygonDependentPointIds',
+    )
     const prismId = this.readNullableString(record, 'prismId')
     const prismOwnerPointIds = this.readStringArray(record, 'prismOwnerPointIds')
     const prismDependentPointIds = this.readStringArray(record, 'prismDependentPointIds')
     const prismRoleValue = this.readNullableString(record, 'prismRole') as string | null
-    const prismRole = prismRoleValue === 'bottom' || prismRoleValue === 'top' || prismRoleValue === 'side' ? prismRoleValue : null
+    const prismRole =
+      prismRoleValue === 'bottom' || prismRoleValue === 'top' || prismRoleValue === 'side'
+        ? prismRoleValue
+        : null
     const pyramidId = this.readNullableString(record, 'pyramidId')
     const pyramidOwnerPointIds = this.readStringArray(record, 'pyramidOwnerPointIds')
     const pyramidDependentPointIds = this.readStringArray(record, 'pyramidDependentPointIds')
     const pyramidRoleValue = this.readNullableString(record, 'pyramidRole') as string | null
-    const pyramidRole = pyramidRoleValue === 'bottom' || pyramidRoleValue === 'side' ? pyramidRoleValue : null
+    const pyramidRole =
+      pyramidRoleValue === 'bottom' || pyramidRoleValue === 'side' ? pyramidRoleValue : null
 
     if (face) {
       face.name = name
@@ -3233,7 +3453,7 @@ export class CollabManager {
       face.pyramidRole = pyramidRole
       face.normalize(this.scene.points)
       this.scene.requestFaceConstraintSolve(id)
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       this.reconcileIntersectionsForTarget('face', id)
       this.reconcileCubeForFace(cubeId)
       this.reconcileRegularPolygonForFace(regularPolygonId)
@@ -3279,7 +3499,7 @@ export class CollabManager {
     nextFace.pyramidRole = pyramidRole
     this.scene.addFace(nextFace)
     this.scene.requestFaceConstraintSolve(id)
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
     this.reconcileIntersectionsForTarget('face', id)
     this.reconcileCubeForFace(cubeId)
     this.reconcileRegularPolygonForFace(regularPolygonId)
@@ -3308,7 +3528,11 @@ export class CollabManager {
       this.readNumber(record, 'vAxisHintY', 1),
       this.readNumber(record, 'vAxisHintZ', 0),
     )
-    const name = this.readString(record, 'name', solidType === 'tetrahedron' ? '正四面体1' : '正六面体1')
+    const name = this.readString(
+      record,
+      'name',
+      solidType === 'tetrahedron' ? '正四面体1' : '正六面体1',
+    )
     const edgeLengthLocked = this.readBoolean(record, 'edgeLengthLocked', false)
     const valueVisible = this.readBoolean(record, 'valueVisible', false)
     const lockedEdgeLength = this.readNullableNumber(record, 'lockedEdgeLength')
@@ -3349,7 +3573,7 @@ export class CollabManager {
       existing.edgeLengthLocked = edgeLengthLocked
       existing.lockedEdgeLength = lockedEdgeLength
       this.scene.requestCubeConstraintSolve(id)
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -3370,7 +3594,7 @@ export class CollabManager {
       ),
     )
     this.scene.requestCubeConstraintSolve(id)
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyRegularPolygonRecord(id: string, record: RegularPolygonSharedMap) {
@@ -3437,7 +3661,7 @@ export class CollabManager {
       existing.nameVisible = nameVisible
       existing.valueVisible = valueVisible
       this.scene.requestConstraintSolve(this.scene.regularPolygonConstraints.get(id))
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -3458,7 +3682,7 @@ export class CollabManager {
       ),
     )
     this.scene.requestConstraintSolve(this.scene.regularPolygonConstraints.get(id))
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyPrismRecord(id: string, record: PrismSharedMap) {
@@ -3545,7 +3769,7 @@ export class CollabManager {
           : verticalHeight
       existing.setVerticalHeight(effectiveVerticalHeight)
       this.scene.requestPrismConstraintSolve(id)
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -3589,7 +3813,7 @@ export class CollabManager {
       ),
     )
     this.scene.requestPrismConstraintSolve(id)
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyPyramidRecord(id: string, record: PyramidSharedMap) {
@@ -3652,7 +3876,7 @@ export class CollabManager {
           : verticalHeight
       existing.setVerticalHeight(effectiveVerticalHeight)
       this.scene.requestPyramidConstraintSolve(id)
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -3692,7 +3916,7 @@ export class CollabManager {
       ),
     )
     this.scene.requestPyramidConstraintSolve(id)
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private applyNetRecord(id: string, record: NetSharedMap) {
@@ -3715,7 +3939,11 @@ export class CollabManager {
         if (!t || !Array.isArray(t.hingeEdgePointIds) || t.hingeEdgePointIds.length !== 2) continue
         faceTransforms.set(fid, {
           hingeEdgePointIds: [t.hingeEdgePointIds[0]!, t.hingeEdgePointIds[1]!],
-          rotationAxis: new Vec3(t.rotationAxis.x ?? 0, t.rotationAxis.y ?? 0, t.rotationAxis.z ?? 0),
+          rotationAxis: new Vec3(
+            t.rotationAxis.x ?? 0,
+            t.rotationAxis.y ?? 0,
+            t.rotationAxis.z ?? 0,
+          ),
           fullRotationAngle: t.fullRotationAngle ?? 0,
           parentFaceId: t.parentFaceId ?? null,
         })
@@ -3762,7 +3990,7 @@ export class CollabManager {
       existing.faceTransforms.clear()
       faceTransforms.forEach((t, fid) => existing.faceTransforms.set(fid, t))
       this.scene.markNetDirty(id)
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
       return
     }
 
@@ -3783,7 +4011,7 @@ export class CollabManager {
     net.controlEdgeFaceId = controlEdgeFaceId
     net.controlEdgePointIds = controlEdgePointIds
     this.scene.addNet(net)
-    this.scene.markAllRenderDirty()
+    this.scheduleRenderDirty()
   }
 
   private observePointRecord(id: string, record: PointSharedMap) {
@@ -4189,7 +4417,7 @@ export class CollabManager {
         if (change.action === 'delete') {
           this.releaseRecordObserver(id, this.intersectionRecordCleanup)
           this.scene.removeIntersectionConstraint(id)
-          this.scene.markAllRenderDirty()
+          this.scheduleRenderDirty()
           return
         }
 
@@ -4210,7 +4438,7 @@ export class CollabManager {
         if (change.action === 'delete') {
           this.releaseRecordObserver(id, this.objectConstrainedPointRecordCleanup)
           this.scene.removeObjectConstrainedPointConstraint(id)
-          this.scene.markAllRenderDirty()
+          this.scheduleRenderDirty()
           return
         }
 
@@ -4261,7 +4489,7 @@ export class CollabManager {
         if (change.action === 'delete') {
           this.releaseRecordObserver(id, this.cubeRecordCleanup)
           this.scene.removeCubeConstraint(id)
-          this.scene.markAllRenderDirty()
+          this.scheduleRenderDirty()
           return
         }
 
@@ -4282,7 +4510,7 @@ export class CollabManager {
         if (change.action === 'delete') {
           this.releaseRecordObserver(id, this.regularPolygonRecordCleanup)
           this.scene.removeRegularPolygonConstraint(id)
-          this.scene.markAllRenderDirty()
+          this.scheduleRenderDirty()
           return
         }
 
@@ -4303,7 +4531,7 @@ export class CollabManager {
         if (change.action === 'delete') {
           this.releaseRecordObserver(id, this.prismRecordCleanup)
           this.scene.removePrismConstraint(id)
-          this.scene.markAllRenderDirty()
+          this.scheduleRenderDirty()
           return
         }
 
@@ -4324,7 +4552,7 @@ export class CollabManager {
         if (change.action === 'delete') {
           this.releaseRecordObserver(id, this.pyramidRecordCleanup)
           this.scene.removePyramidConstraint(id)
-          this.scene.markAllRenderDirty()
+          this.scheduleRenderDirty()
           return
         }
 
@@ -4351,7 +4579,7 @@ export class CollabManager {
         if (change.action === 'delete') {
           this.releaseRecordObserver(id, this.netRecordCleanup)
           this.scene.removeNet(id)
-          this.scene.markAllRenderDirty()
+          this.scheduleRenderDirty()
           return
         }
 
@@ -4433,7 +4661,10 @@ export class CollabManager {
     this.setScalarField(record, 'userLocked', line.userLocked)
   }
 
-  private syncPerpendicularLineRecord(record: PerpendicularLineSharedMap, line: PerpendicularLine3) {
+  private syncPerpendicularLineRecord(
+    record: PerpendicularLineSharedMap,
+    line: PerpendicularLine3,
+  ) {
     this.setScalarField(record, 'p1Id', line.p1.id)
     this.setScalarField(record, 'p2Id', line.p2.id)
     this.setScalarField(record, 'p2X', line.p2.position.x)
@@ -4556,17 +4787,27 @@ export class CollabManager {
     this.setScalarField(record, 'userLocked', cylinder.userLocked)
   }
 
-  private syncIntersectionRecord(record: IntersectionSharedMap, constraint: IntersectionPointConstraint) {
+  private syncIntersectionRecord(
+    record: IntersectionSharedMap,
+    constraint: IntersectionPointConstraint,
+  ) {
     this.setScalarField(record, 'sourceAType', constraint.sourceA.type)
     this.setScalarField(record, 'sourceAId', constraint.sourceA.id)
     this.setScalarField(record, 'sourceBType', constraint.sourceB.type)
     this.setScalarField(record, 'sourceBId', constraint.sourceB.id)
   }
 
-  private syncObjectConstrainedPointRecord(record: ObjectConstrainedPointSharedMap, constraint: ObjectConstrainedPointConstraint) {
+  private syncObjectConstrainedPointRecord(
+    record: ObjectConstrainedPointSharedMap,
+    constraint: ObjectConstrainedPointConstraint,
+  ) {
     this.setScalarField(record, 'targetType', constraint.target.type)
     this.setScalarField(record, 'targetId', constraint.target.id)
-    this.setScalarField(record, 'parametricData', constraint.parametricData ? JSON.stringify(constraint.parametricData) : '')
+    this.setScalarField(
+      record,
+      'parametricData',
+      constraint.parametricData ? JSON.stringify(constraint.parametricData) : '',
+    )
   }
 
   private syncFaceRecord(record: FaceSharedMap, face: PlanarPolygon) {
@@ -4592,8 +4833,12 @@ export class CollabManager {
     this.setScalarField(record, 'isRegularPolygon', face.isRegularPolygon)
     this.setScalarField(record, 'regularPolygonVertexCount', face.regularPolygonVertexCount)
     this.setNullableScalarField(record, 'regularPolygonId', face.regularPolygonId)
-    this.syncFaceArrayField(record, 'regularPolygonOwnerPointIds', [...face.regularPolygonOwnerPointIds])
-    this.syncFaceArrayField(record, 'regularPolygonDependentPointIds', [...face.regularPolygonDependentPointIds])
+    this.syncFaceArrayField(record, 'regularPolygonOwnerPointIds', [
+      ...face.regularPolygonOwnerPointIds,
+    ])
+    this.syncFaceArrayField(record, 'regularPolygonDependentPointIds', [
+      ...face.regularPolygonDependentPointIds,
+    ])
     this.setNullableScalarField(record, 'prismId', face.prismId)
     this.syncFaceArrayField(record, 'prismOwnerPointIds', [...face.prismOwnerPointIds])
     this.syncFaceArrayField(record, 'prismDependentPointIds', [...face.prismDependentPointIds])
@@ -4621,7 +4866,10 @@ export class CollabManager {
     this.setNullableScalarField(record, 'lockedEdgeLength', cube.lockedEdgeLength)
   }
 
-  private syncRegularPolygonRecord(record: RegularPolygonSharedMap, constraint: RegularPolygonConstraint) {
+  private syncRegularPolygonRecord(
+    record: RegularPolygonSharedMap,
+    constraint: RegularPolygonConstraint,
+  ) {
     this.setScalarField(record, 'ownerPointIds', JSON.stringify([...constraint.ownerPointIds]))
     this.setScalarField(record, 'dependentLayouts', JSON.stringify(constraint.dependentLayouts))
     this.setScalarField(record, 'faceId', constraint.faceId)
@@ -4774,7 +5022,11 @@ export class CollabManager {
     }, 50)
   }
 
-  syncLivePreview(pointIds: Iterable<string>, labelTarget: LiveLabelTarget | null = null, netIds: Iterable<string> = []) {
+  syncLivePreview(
+    pointIds: Iterable<string>,
+    labelTarget: LiveLabelTarget | null = null,
+    netIds: Iterable<string> = [],
+  ) {
     if (!this.provider || this.roomName === null) return
     if (this.isApplyingSharedHistory) return
 
@@ -4792,7 +5044,13 @@ export class CollabManager {
     }, CollabManager.LIVE_SYNC_THROTTLE_MS)
   }
 
-  private syncNow() {
+  /** 判断 Yjs 共享文档中是否已有几何数据（用于区分首位加入者与后续加入者） */
+  hasSharedGeometry(): boolean {
+    return this.roomHasSharedGeometry()
+  }
+
+  /** 将本地场景全量推送到 Yjs 共享文档（首位加入者加载项目后调用） */
+  syncNow() {
     if (!this.provider || this.roomName === null) return
 
     this.markSceneDirty()
@@ -5111,7 +5369,10 @@ export class CollabManager {
           this.yObjectConstrainedPoints.delete(id)
           return
         }
-        this.syncObjectConstrainedPointRecord(this.ensureObjectConstrainedPointRecord(id), constraint)
+        this.syncObjectConstrainedPointRecord(
+          this.ensureObjectConstrainedPointRecord(id),
+          constraint,
+        )
       })
     })
 
@@ -5144,7 +5405,9 @@ export class CollabManager {
     deletedCircleIds.forEach((id) => this.deletedCircleIds.delete(id))
     deletedSphereIds.forEach((id) => this.deletedSphereIds.delete(id))
     deletedConeIds.forEach((id) => this.deletedConeIds.delete(id))
-    deletedObjectConstrainedPointIds.forEach((id) => this.deletedObjectConstrainedPointIds.delete(id))
+    deletedObjectConstrainedPointIds.forEach((id) =>
+      this.deletedObjectConstrainedPointIds.delete(id),
+    )
     deletedCylinderIds.forEach((id) => this.deletedCylinderIds.delete(id))
     deletedIntersectionIds.forEach((id) => this.deletedIntersectionIds.delete(id))
     deletedFaceIds.forEach((id) => this.deletedFaceIds.delete(id))
@@ -5267,7 +5530,7 @@ export class CollabManager {
     try {
       importScene(this.scene, entry.before)
       this.scene.solveDirtyConstraints()
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
     } finally {
       this.isApplyingSharedHistory = false
     }
@@ -5289,7 +5552,7 @@ export class CollabManager {
     try {
       importScene(this.scene, entry.after)
       this.scene.solveDirtyConstraints()
-      this.scene.markAllRenderDirty()
+      this.scheduleRenderDirty()
     } finally {
       this.isApplyingSharedHistory = false
     }
@@ -5342,7 +5605,8 @@ export class CollabManager {
         if (!this.scene.getIntersectionConstraint(id)) this.yIntersections.delete(id)
       }
       for (const id of [...this.yObjectConstrainedPoints.keys()]) {
-        if (!this.scene.objectConstrainedPointConstraints.has(id)) this.yObjectConstrainedPoints.delete(id)
+        if (!this.scene.objectConstrainedPointConstraints.has(id))
+          this.yObjectConstrainedPoints.delete(id)
       }
       for (const id of [...this.yFaces.keys()]) {
         if (!this.scene.faces.has(id)) this.yFaces.delete(id)
@@ -5459,9 +5723,15 @@ export class CollabManager {
       const beforeRaw = map.get('before')
       const afterRaw = map.get('after')
 
-      if (typeof id !== 'string' || typeof seq !== 'number' || typeof actorClientId !== 'number' ||
-          typeof createdAt !== 'number' || typeof label !== 'string' ||
-          typeof beforeRaw !== 'string' || typeof afterRaw !== 'string') {
+      if (
+        typeof id !== 'string' ||
+        typeof seq !== 'number' ||
+        typeof actorClientId !== 'number' ||
+        typeof createdAt !== 'number' ||
+        typeof label !== 'string' ||
+        typeof beforeRaw !== 'string' ||
+        typeof afterRaw !== 'string'
+      ) {
         return null
       }
 

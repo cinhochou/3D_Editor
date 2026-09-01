@@ -5,6 +5,9 @@ import LoginView from '@/views/LoginView.vue'
 import RegisterView from '@/views/RegisterView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import ProjectListView from '@/views/ProjectListView.vue'
+import RoomListView from '@/views/RoomListView.vue'
+import CollabHallView from '@/views/CollabHallView.vue'
+import RecycleBinView from '@/views/RecycleBinView.vue'
 import { useAuthStore } from '@/store/authStore'
 
 const routes = [
@@ -37,6 +40,24 @@ const routes = [
     name: 'projects',
     component: ProjectListView,
     meta: { requiresAuth: true, title: '项目列表' },
+  },
+  {
+    path: '/rooms',
+    name: 'rooms',
+    component: RoomListView,
+    meta: { requiresAuth: true, title: '房间列表' },
+  },
+  {
+    path: '/collab-hall',
+    name: 'collab-hall',
+    component: CollabHallView,
+    meta: { requiresAuth: true, title: '协作大厅' },
+  },
+  {
+    path: '/recycle-bin',
+    name: 'recycle-bin',
+    component: RecycleBinView,
+    meta: { requiresAuth: true, title: '回收站' },
   },
   {
     path: '/logout',

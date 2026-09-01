@@ -120,7 +120,7 @@ onUnmounted(() => {
 <template>
   <Teleport to="body">
     <Transition name="fade-overlay">
-      <div v-if="visible" class="dialog-overlay" @click.self="emit('cancel')">
+      <div v-if="visible" class="dialog-overlay">
         <div
           ref="dialogRef"
           class="dialog-content"

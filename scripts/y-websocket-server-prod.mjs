@@ -5,16 +5,25 @@ import * as awarenessProtocol from 'y-protocols/awareness'
 import * as encoding from 'lib0/encoding'
 import * as decoding from 'lib0/decoding'
 import http from 'node:http'
+import https from 'node:https'
+import fs from 'node:fs'
 
 // ============================================================================
-// 配置（通过环境变量覆盖）
+// 生产环境配置（全部通过环境变量）
 // ============================================================================
 const host = process.env.HOST ?? '0.0.0.0'
 const port = Number.parseInt(process.env.PORT ?? '1234', 10)
 // 后端 service-collab 地址，用于票据验证（直接调用，不走网关）
-const COLLAB_BACKEND_URL = (process.env.COLLAB_BACKEND_URL ?? 'http://localhost:8083').replace(/\/+$/, '')
-// 是否强制票据验证（本地调试可设为 false 跳过）
-const REQUIRE_TICKET = (process.env.REQUIRE_TICKET ?? 'true').toLowerCase() !== 'false'
+const COLLAB_BACKEND_URL = (
+  process.env.COLLAB_BACKEND_URL ?? 'https://electrokinetic-shawanna-unstrewn.ngrok-free.dev'
+).replace(/\/+$/, '')
+// SSL 证书（提供则启用 wss，不提供则用 ws —— 适合通过 nginx / ngrok 反代 SSL 的场景）
+const SSL_CERT_PATH = process.env.SSL_CERT_PATH ?? ''
+const SSL_KEY_PATH = process.env.SSL_KEY_PATH ?? ''
+// 健康检查路径
+const HEALTH_PATH = process.env.HEALTH_PATH ?? '/health'
+// 房间空闲自动关闭时间（毫秒，0 表示不自动关闭）
+const ROOM_IDLE_TIMEOUT = Number.parseInt(process.env.ROOM_IDLE_TIMEOUT ?? '0', 10)
 
 const messageSync = 0
 const messageAwareness = 1
@@ -30,7 +39,7 @@ const HEARTBEAT_INTERVAL_MS = Number.parseInt(process.env.HEARTBEAT_INTERVAL_MS 
 const CLIENT_DEAD_TIMEOUT_MS = Number.parseInt(process.env.CLIENT_DEAD_TIMEOUT_MS ?? '45000', 10)
 
 /**
- * @typedef {import('ws').WebSocket & { clientIds: Set<number>, lastMessageAt: number }} RoomClient
+ * @typedef {import('ws').WebSocket & { clientIds: Set<number>; userId?: string; username?: string; role?: string; lastMessageAt: number }} RoomClient
  */
 
 /**
@@ -40,11 +49,14 @@ const CLIENT_DEAD_TIMEOUT_MS = Number.parseInt(process.env.CLIENT_DEAD_TIMEOUT_M
  *   awareness: awarenessProtocol.Awareness
  *   clients: Set<RoomClient>
  *   closed: boolean
+ *   idleTimer?: NodeJS.Timeout
  * }} RoomState
  */
 
 /** @type {Map<string, RoomState>} */
 const rooms = new Map()
+
+const startTime = Date.now()
 
 const toUint8Array = (data) => {
   if (data instanceof Uint8Array) {
@@ -69,12 +81,22 @@ const encodeMessage = (messageType, writePayload) => {
 
 const closeRoom = (room) => {
   if (room.closed) return
-
   room.closed = true
-
+  if (room.idleTimer) clearTimeout(room.idleTimer)
   rooms.delete(room.name)
   room.awareness.destroy()
   room.doc.destroy()
+}
+
+const scheduleIdleClose = (room) => {
+  if (ROOM_IDLE_TIMEOUT <= 0) return
+  if (room.idleTimer) clearTimeout(room.idleTimer)
+  room.idleTimer = setTimeout(() => {
+    if (room.clients.size === 0) {
+      console.log(`[y-websocket] room "${room.name}" idle timeout, closing`)
+      closeRoom(room)
+    }
+  }, ROOM_IDLE_TIMEOUT)
 }
 
 const getRoom = (roomName) => {
@@ -105,12 +127,6 @@ const getRoom = (roomName) => {
 }
 
 // ---- 票据验证 ----
-/**
- * 调用后端 service-collab 的内部接口验证房间票据
- * @param {string} ticket - JWT 票据
- * @param {string} roomId - 房间 ID（即 roomName）
- * @returns {Promise<{ valid: boolean; userId?: string; username?: string; role?: string }>}
- */
 const verifyTicket = async (ticket, roomId) => {
   try {
     const params = new URLSearchParams({ ticket, roomId })
@@ -129,6 +145,7 @@ const verifyTicket = async (ticket, roomId) => {
         userId: result.data.userId,
         username: result.data.username,
         role: result.data.role,
+        permission: result.data.permission,
       }
     }
     return { valid: false }
@@ -206,30 +223,25 @@ const cleanupClient = (room, client) => {
   syncPeerCountToBackend(room.name, room.clients.size)
 
   if (room.clients.size === 0) {
-    closeRoom(room)
+    scheduleIdleClose(room)
   }
 }
 
 // ---- 同步在线人数到后端 service-collab ----
-// 在客户端连接/断开时调用后端内部接口更新 currentPeers 字段
 const syncPeerCountToBackend = async (roomId, onlineCount) => {
   try {
-    await fetch(
-      `${COLLAB_BACKEND_URL}/internal/collab/room/${encodeURIComponent(roomId)}/peers`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ onlineCount }),
-      },
-    )
+    await fetch(`${COLLAB_BACKEND_URL}/internal/collab/room/${encodeURIComponent(roomId)}/peers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ onlineCount }),
+    })
   } catch (err) {
-    // 后端不可用时不阻塞信令服务
     console.warn(`[y-websocket] sync peers to backend failed:`, err?.message ?? err)
   }
 }
 
-// ---- HTTP 接口：查询房间实时在线人数 ----
-const handleHttpRequest = (req, res) => {
+// ---- HTTP 端点：健康检查 + 房间在线人数查询 ----
+const handleHealthCheck = (req, res) => {
   const url = new URL(req.url ?? '/', `http://${host}:${port}`)
 
   // CORS 预检请求处理
@@ -240,7 +252,7 @@ const handleHttpRequest = (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     })
     res.end()
-    return
+    return true
   }
 
   // 统一添加 CORS 响应头
@@ -249,14 +261,18 @@ const handleHttpRequest = (req, res) => {
   }
 
   // 健康检查
-  if (url.pathname === '/' || url.pathname === '/health') {
+  if (url.pathname === HEALTH_PATH || url.pathname === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
-    res.end(JSON.stringify({
-      status: 'ok',
-      rooms: rooms.size,
-      totalClients: Array.from(rooms.values()).reduce((sum, r) => sum + r.clients.size, 0),
-    }))
-    return
+    res.end(
+      JSON.stringify({
+        status: 'ok',
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+        rooms: rooms.size,
+        totalClients: Array.from(rooms.values()).reduce((sum, r) => sum + r.clients.size, 0),
+        timestamp: new Date().toISOString(),
+      }),
+    )
+    return true
   }
 
   // 查询指定房间的实时在线人数
@@ -272,13 +288,15 @@ const handleHttpRequest = (req, res) => {
       : []
     res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
     res.end(JSON.stringify({ roomId, onlineCount, onlineUsers }))
-    return
+    return true
   }
 
   // 批量查询多个房间的实时在线人数
   if (url.pathname === '/rooms/peers' && req.method === 'POST') {
     let body = ''
-    req.on('data', (chunk) => { body += chunk })
+    req.on('data', (chunk) => {
+      body += chunk
+    })
     req.on('end', () => {
       try {
         const { roomIds } = JSON.parse(body)
@@ -294,10 +312,12 @@ const handleHttpRequest = (req, res) => {
         res.end(JSON.stringify({ error: 'invalid body' }))
       }
     })
-    return
+    return true
   }
 
-  // 踢出指定房间内的用户（由后端 removeMember 调用，强制断开 WebSocket）
+  // Force-disconnect a removed member. The backend calls this after deleting
+  // the membership row; the WebSocket service is the only process that owns
+  // the live socket and must close it explicitly.
   const kickMatch = url.pathname.match(/^\/room\/([^/]+)\/kick\/(.+)$/)
   if (kickMatch && req.method === 'POST') {
     const roomId = decodeURIComponent(kickMatch[1])
@@ -305,70 +325,84 @@ const handleHttpRequest = (req, res) => {
     const room = rooms.get(roomId)
     let kicked = 0
     if (room) {
-      const targets = Array.from(room.clients).filter((c) => c.userId === userId)
-      for (const client of targets) {
+      for (const client of Array.from(room.clients)) {
+        if (client.userId !== userId) continue
         try {
-          // RoomClient is the WebSocket itself (Object.assign(socket, ...)).
-          // Calling client.socket.close() silently fails because that property
-          // does not exist, leaving kicked users connected.
           client.close(4010, 'kicked')
         } catch {
-          // ignore close errors
+          // The close event still performs cleanup if the socket is closing.
         }
         kicked++
       }
     }
     res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
     res.end(JSON.stringify({ roomId, userId, kicked }))
-    return
+    return true
   }
 
   res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders })
   res.end(JSON.stringify({ error: 'not found' }))
+  return false
 }
 
-// ---- 创建 HTTP + WebSocket 服务器 ----
-const httpServer = http.createServer(handleHttpRequest)
-const server = new WebSocketServer({ server: httpServer })
+// ---- 创建服务器 ----
+let httpServer = null
+const useTls = Boolean(SSL_CERT_PATH && SSL_KEY_PATH)
 
-server.on('connection', async (socket, request) => {
+if (useTls) {
+  httpServer = https.createServer({
+    cert: fs.readFileSync(SSL_CERT_PATH),
+    key: fs.readFileSync(SSL_KEY_PATH),
+  })
+} else {
+  httpServer = http.createServer()
+}
+
+// HTTP 请求处理（健康检查）
+httpServer.on('request', handleHealthCheck)
+
+const wsServer = new WebSocketServer({ server: httpServer })
+
+wsServer.on('connection', async (socket, request) => {
   const url = new URL(request.url ?? '/', `http://${host}:${port}`)
   const roomName = decodeURIComponent(url.pathname.replace(/^\/+/, '')) || 'default-room'
   const ticket = url.searchParams.get('ticket')
 
-  // ---- 票据验证 ----
-  let ticketInfo = { valid: true }
-  if (REQUIRE_TICKET) {
-    if (!ticket) {
-      console.warn(`[y-websocket] rejected: missing ticket for room "${roomName}"`)
-      socket.close(4001, 'missing ticket')
-      return
-    }
-    const result = await verifyTicket(ticket, roomName)
-    if (!result.valid) {
-      console.warn(`[y-websocket] rejected: invalid ticket for room "${roomName}"`)
-      socket.close(4003, 'invalid ticket')
-      return
-    }
-    console.log(`[y-websocket] ticket verified: user=${result.username} (${result.userId}) room="${roomName}" role=${result.role}`)
-    ticketInfo = result
+  // ---- 票据验证（生产环境强制） ----
+  if (!ticket) {
+    console.warn(`[y-websocket] rejected: missing ticket for room "${roomName}"`)
+    socket.close(4001, 'missing ticket')
+    return
+  }
+  const result = await verifyTicket(ticket, roomName)
+  if (!result.valid) {
+    console.warn(`[y-websocket] rejected: invalid ticket for room "${roomName}"`)
+    socket.close(4003, 'invalid ticket')
+    return
   }
 
   /** @type {RoomClient} */
   const client = Object.assign(socket, {
     clientIds: new Set(),
-    userId: ticketInfo.userId,
-    username: ticketInfo.username,
-    role: ticketInfo.role,
+    userId: result.userId,
+    username: result.username,
+    role: result.role,
     lastMessageAt: Date.now(),
   })
   const room = getRoom(roomName)
+  // 取消空闲关闭定时器（有新成员加入）
+  if (room.idleTimer) {
+    clearTimeout(room.idleTimer)
+    room.idleTimer = undefined
+  }
   room.clients.add(client)
 
   // 同步在线人数到后端
   syncPeerCountToBackend(roomName, room.clients.size)
 
-  console.log(`[y-websocket] client joined room "${roomName}" (${room.clients.size} online)`)
+  console.log(
+    `[y-websocket] user="${result.username}" (${result.userId}) joined room="${roomName}" role=${result.role} (${room.clients.size} online)`,
+  )
   sendSyncStep1(room, client)
   sendSyncStep2(room, client)
   sendCurrentAwareness(room, client)
@@ -418,7 +452,9 @@ server.on('connection', async (socket, request) => {
 
   client.on('close', () => {
     cleanupClient(room, client)
-    console.log(`[y-websocket] client left room "${roomName}" (${room.clients.size} online)`)
+    console.log(
+      `[y-websocket] user="${client.username}" left room="${roomName}" (${room.clients.size} online)`,
+    )
   })
 
   client.on('error', (error) => {
@@ -462,18 +498,22 @@ setInterval(() => {
 }, HEARTBEAT_INTERVAL_MS)
 
 httpServer.listen(port, host, () => {
-  console.log(`[y-websocket] listening on ws://${host}:${port}`)
-  console.log(`[y-websocket] ticket verification: ${REQUIRE_TICKET ? 'enabled' : 'disabled'}`)
-  if (REQUIRE_TICKET) {
-    console.log(`[y-websocket] backend: ${COLLAB_BACKEND_URL}`)
+  const protocol = useTls ? 'wss' : 'ws'
+  console.log(`[y-websocket] production server listening on ${protocol}://${host}:${port}`)
+  console.log(`[y-websocket] backend: ${COLLAB_BACKEND_URL}`)
+  console.log(`[y-websocket] tls: ${useTls ? 'enabled' : 'disabled (use reverse proxy for wss)'}`)
+  console.log(`[y-websocket] health check: ${protocol}://${host}:${port}${HEALTH_PATH}`)
+  if (ROOM_IDLE_TIMEOUT > 0) {
+    console.log(`[y-websocket] room idle timeout: ${ROOM_IDLE_TIMEOUT}ms`)
   }
 })
 
 const shutdown = () => {
-  server.clients.forEach((client) => {
-    client.close()
+  console.log('[y-websocket] shutting down...')
+  wsServer.clients.forEach((client) => {
+    client.close(1001, 'server shutting down')
   })
-  server.close(() => {
+  httpServer.close(() => {
     rooms.forEach((room) => {
       closeRoom(room)
     })

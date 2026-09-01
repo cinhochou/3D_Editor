@@ -40,20 +40,25 @@ export default defineConfig(({ command }) => ({
       },
       workbox: {
         // 预缓存构建产物：JS/CSS/HTML/字体/本地图片等
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json}'],
+        // dat/patt/td 为 AR 模式每次进入都要用的静态资源，一并预缓存
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json,dat,patt,td}'],
         // ar.js 等库超过默认 2MB 限制，需要放宽
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        // 运行时缓存策略（只缓存图片，不缓存 API，避免不同用户/不同 token 之间读到旧数据）
+        // 运行时缓存策略说明：
+        // - 头像/缩略图等后端图片【不在这里缓存】：它们带 Authorization 头，
+        //   统一由 src/utils/imageCache.ts（Cache Storage）管理，
+        //   避免 SW StaleWhileRevalidate 每次都在后台重新下载一遍。
+        // - 不缓存 API 请求，避免不同用户/不同 token 之间读到旧数据。
         runtimeCaching: [
           {
-            // 头像、缩略图等后端图片资源
-            urlPattern: /\/(?:user\/avatar|thumbnails)\/.+/i,
-            handler: 'StaleWhileRevalidate',
+            // AR 静态资源（相机标定参数、识别图案）：内容不变，CacheFirst 零重复下载
+            urlPattern: /\/(?:data|arcode)\/.+/i,
+            handler: 'CacheFirst',
             options: {
-              cacheName: 'geomesh-images',
+              cacheName: 'geomesh-ar-assets',
               expiration: {
-                maxEntries: 200,
-                maxAgeSeconds: 7 * 24 * 60 * 60, // 7 天
+                maxEntries: 20,
+                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 天
               },
             },
           },

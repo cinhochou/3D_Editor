@@ -26,10 +26,13 @@ import { useSceneStore } from '@/store/sceneStore'
 const props = defineProps<{
   scene: Scene
   editor: Editor
+  viewOnly?: boolean
 }>()
 
 const uiStore = useUiStore()
 const sceneStore = useSceneStore()
+// 仅观看模式守卫：返回 true 时表示当前用户无编辑权限，应跳过所有修改操作
+const guardViewOnly = (): boolean => props.viewOnly === true
 const {
   isCompactLineEditor,
   contentGroupsCollapsed,
@@ -769,6 +772,7 @@ const applyConstrainedParam = (key: string, direction?: 'up' | 'down') => {
 
 /** 约束点参数增减（与普通点坐标增减行为一致，使用 stepCoordInput） */
 const nudgeConstrainedParam = (key: string, direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const inputKey = `constrained.${key}`
   hideLengthBubble(inputKey)
   const nextValue = stepCoordInput(inputKey, direction)
@@ -869,21 +873,25 @@ const editFace = reactive({
 const circlePiModes = reactive(new Map<string, boolean>())
 const getCirclePiMode = (circleId: string) => circlePiModes.get(circleId) ?? false
 const toggleCirclePiMode = (circleId: string) => {
+  if (guardViewOnly()) return
   circlePiModes.set(circleId, !getCirclePiMode(circleId))
 }
 const conePiModes = reactive(new Map<string, boolean>())
 const getConePiMode = (coneId: string) => conePiModes.get(coneId) ?? false
 const toggleConePiMode = (coneId: string) => {
+  if (guardViewOnly()) return
   conePiModes.set(coneId, !getConePiMode(coneId))
 }
 const cylinderPiModes = reactive(new Map<string, boolean>())
 const getCylinderPiMode = (cylinderId: string) => cylinderPiModes.get(cylinderId) ?? false
 const toggleCylinderPiMode = (cylinderId: string) => {
+  if (guardViewOnly()) return
   cylinderPiModes.set(cylinderId, !getCylinderPiMode(cylinderId))
 }
 const spherePiModes = reactive(new Map<string, boolean>())
 const getSpherePiMode = (sphereId: string) => spherePiModes.get(sphereId) ?? false
 const toggleSpherePiMode = (sphereId: string) => {
+  if (guardViewOnly()) return
   spherePiModes.set(sphereId, !getSpherePiMode(sphereId))
 }
 const editCircle = reactive({
@@ -1830,12 +1838,14 @@ const handleStraightLineCoordBlur = (which: 'p1' | 'p2', axis: 'x' | 'y' | 'z') 
   applyEditStraightLine()
 }
 const nudgePointCoord = (axis: 'x' | 'y' | 'z', direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`point.${axis}`, direction)
   if (nextValue === null) return
   editPoint[axis] = nextValue
   applyEditPoint()
 }
 const nudgeLineCoord = (which: 'p1' | 'p2', axis: 'x' | 'y' | 'z', direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`line.${which}.${axis}`, direction)
   if (nextValue === null) return
   editLine[which][axis] = nextValue
@@ -1856,6 +1866,7 @@ const handleLineLengthBlur = () => {
   applyEditLine()
 }
 const nudgeLineLength = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('line.lockedLength')
   const current = Number(editLine.lockedLength)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -1867,6 +1878,7 @@ const nudgeLineLength = (direction: 'up' | 'down') => {
   applyEditLine()
 }
 const nudgeRayCoord = (which: 'p1' | 'p2', axis: 'x' | 'y' | 'z', direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`ray.${which}.${axis}`, direction)
   if (nextValue === null) return
   editRay[which][axis] = nextValue
@@ -1877,6 +1889,7 @@ const nudgeStraightLineCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`straightLine.${which}.${axis}`, direction)
   if (nextValue === null) return
   editStraightLine[which][axis] = nextValue
@@ -1891,6 +1904,7 @@ const handlePerpendicularLineCoordBlur = (axis: 'x' | 'y' | 'z') => {
   applyEditPerpendicularLine()
 }
 const nudgePerpendicularLineCoord = (axis: 'x' | 'y' | 'z', direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`perpendicularLine.p1.${axis}`, direction)
   if (nextValue === null) return
   editPerpendicularLine.p1[axis] = nextValue
@@ -1911,6 +1925,7 @@ const handleRayDisplayLengthBlur = () => {
   applyEditRay()
 }
 const nudgeRayDisplayLength = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('ray.displayLength')
   const current = Number(editRay.displayLength)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -1932,6 +1947,7 @@ const handleVectorLengthBlur = () => {
   applyEditVector()
 }
 const nudgeVectorLength = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('vector.length')
   const current = Number(editVector.length)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -1953,6 +1969,7 @@ const handleVectorCoordBlur = (which: 'p1' | 'p2', axis: 'x' | 'y' | 'z') => {
   applyEditVector()
 }
 const nudgeVectorCoord = (which: 'p1' | 'p2', axis: 'x' | 'y' | 'z', direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`vector.${which}.${axis}`, direction)
   if (nextValue === null) return
   editVector[which][axis] = nextValue
@@ -1973,6 +1990,7 @@ const handleStraightLineDisplayLengthBlur = () => {
   applyEditStraightLine()
 }
 const nudgeStraightLineDisplayLength = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('straightLine.displayLength')
   const current = Number(editStraightLine.displayLength)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -1998,6 +2016,7 @@ const handlePerpendicularLineDisplayLengthBlur = () => {
   applyEditPerpendicularLine()
 }
 const nudgePerpendicularLineDisplayLength = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('perpendicularLine.displayLength')
   const current = Number(editPerpendicularLine.displayLength)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -2017,6 +2036,7 @@ const handleParallelLineCoordBlur = (axis: 'x' | 'y' | 'z') => {
   applyEditParallelLine()
 }
 const nudgeParallelLineCoord = (axis: 'x' | 'y' | 'z', direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`parallelLine.p1.${axis}`, direction)
   if (nextValue === null) return
   editParallelLine.p1[axis] = nextValue
@@ -2037,6 +2057,7 @@ const handleParallelLineDisplayLengthBlur = () => {
   applyEditParallelLine()
 }
 const nudgeParallelLineDisplayLength = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('parallelLine.displayLength')
   const current = Number(editParallelLine.displayLength)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -2064,6 +2085,7 @@ const handleFaceEdgeLengthBlur = (faceId: string, edgeIndex: number) => {
   applyFaceEdgeLength(faceId, edgeIndex)
 }
 const nudgeFaceEdgeLength = (faceId: string, edgeIndex: number, direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const key = `face.edge.${edgeIndex}`
   hideLengthBubble(key)
   const current = Number(editFace.edgeLengths[edgeIndex])
@@ -2106,6 +2128,7 @@ const handleHexahedronEdgeLengthBlur = () => {
   applyHexahedronEdgeLength()
 }
 const nudgeHexahedronEdgeLength = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('hexa.edgeLength')
   const current = Number(editHexahedron.edgeLength)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -2131,6 +2154,7 @@ const nudgeHexahedronOwnerCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`hexa.${pointKey}.${axis}`, direction)
   if (nextValue === null) return
   editHexahedron[pointKey][axis] = nextValue
@@ -2401,6 +2425,7 @@ const applyPointPosition = (id: string, xStr: string, yStr: string, zStr: string
 }
 
 const applyEditPoint = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'point') return
   const point = props.scene.points.get(editing.value.id)
   if (point) {
@@ -2425,6 +2450,7 @@ const applyEditPoint = () => {
 }
 
 const applyEditLine = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'line') return
   const line = props.scene.lines.get(editing.value.id)
   if (!line) return
@@ -2508,6 +2534,7 @@ const applyEditLine = () => {
   props.editor.commitCollabTransaction()
 }
 const applyEditRay = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'ray') return
   const ray = props.scene.rays.get(editing.value.id)
   if (!ray) return
@@ -2531,6 +2558,7 @@ const applyEditRay = () => {
   props.editor.commitCollabTransaction()
 }
 const applyEditVector = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'vector') return
   const vector = props.scene.vectors.get(editing.value.id)
   if (!vector) return
@@ -2622,6 +2650,7 @@ const applyEditVector = () => {
   props.editor.commitCollabTransaction()
 }
 const applyEditStraightLine = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'straightLine') return
   const line = props.scene.straightLines.get(editing.value.id)
   if (!line) return
@@ -2655,6 +2684,7 @@ const applyEditStraightLine = () => {
   props.editor.commitCollabTransaction()
 }
 const applyEditPerpendicularLine = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'perpendicularLine') return
   const line = props.scene.perpendicularLines.get(editing.value.id)
   if (!line) return
@@ -2681,6 +2711,7 @@ const applyEditPerpendicularLine = () => {
   props.editor.commitCollabTransaction()
 }
 const applyEditParallelLine = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'parallelLine') return
   const line = props.scene.parallelLines.get(editing.value.id)
   if (!line) return
@@ -2707,6 +2738,7 @@ const applyEditParallelLine = () => {
   props.editor.commitCollabTransaction()
 }
 const applyEditFace = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'face') return
   const face = props.scene.faces.get(editing.value.id)
   if (!face) return
@@ -2726,6 +2758,7 @@ const applyEditFace = () => {
   props.editor.commitCollabTransaction()
 }
 const applyEditCircle = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'circle') return
   const circle = props.scene.circles.get(editing.value.id)
   if (!circle) return
@@ -2790,12 +2823,14 @@ const nudgeCirclePointCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`circle.${pointKey}.${axis}`, direction)
   if (nextValue === null) return
   editCircle[pointKey][axis] = nextValue
   applyCirclePointCoord(pointKey)
 }
 const nudgeNormalCircleRadius = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('circle.lockedRadius')
   const state = getEditingCircleState()
   if (!state) return
@@ -2843,6 +2878,7 @@ const applyThreePointCircleRadius = () => {
   }
 }
 const nudgeThreePointCircleRadius = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('circle.threePointRadius')
   const current = parseFloat(editCircle.threePointRadius)
   if (isNaN(current) || current < 0) return
@@ -3000,6 +3036,7 @@ const nudgePrismTopPointCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const key = `prism.topPoint.${axis}`
   const nextValue = stepCoordInput(key, direction)
   if (nextValue === null) return
@@ -3060,6 +3097,7 @@ const applyPrismHeight = () => {
   editPrism.topPoint.z = toFixed2(newPosition.z)
 }
 const nudgePrismHeight = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const state = getEditingPrismState()
   if (!state) return
   if (state.ownerPoints[1] && props.editor.isPointCoordinateLocked(state.ownerPoints[1])) return
@@ -3106,6 +3144,7 @@ const applyPrismBottomEdgeLength = (edgeIndex: number) => {
   }
 }
 const nudgePrismBottomEdgeLength = (edgeIndex: number, direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const state = getEditingPrismState()
   if (!state) return
   const bottomFace = props.scene.faces.get(state.constraint.bottomFaceId)
@@ -3220,6 +3259,7 @@ const nudgePyramidApexPointCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const key = `pyramid.apexPoint.${axis}`
   const nextValue = stepCoordInput(key, direction)
   if (nextValue === null) return
@@ -3277,6 +3317,7 @@ const applyPyramidHeight = () => {
   editPyramid.apexPoint.z = toFixed2(newPosition.z)
 }
 const nudgePyramidHeight = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const state = getEditingPyramidState()
   if (!state) return
   if (state.ownerPoints[1] && props.editor.isPointCoordinateLocked(state.ownerPoints[1])) return
@@ -3323,6 +3364,7 @@ const applyPyramidBottomEdgeLength = (edgeIndex: number) => {
   }
 }
 const nudgePyramidBottomEdgeLength = (edgeIndex: number, direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   const state = getEditingPyramidState()
   if (!state) return
   const bottomFace = props.scene.faces.get(state.constraint.bottomFaceId)
@@ -3412,6 +3454,7 @@ const applyRegularPolygonOwnerPoint = (pointKey: 'p1' | 'p2') => {
 }
 
 const nudgeRegularPolygonEdgeLength = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('rp.edgeLength')
   const current = Number(editRegularPolygon.edgeLength)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -3450,6 +3493,7 @@ const nudgeRegularPolygonOwnerCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const current = Number(editRegularPolygon[pointKey][axis])
   if (!Number.isFinite(current)) return
   const step = 0.5
@@ -3495,6 +3539,7 @@ const getEditingSphereState = () => {
 }
 
 const applyEditSphereMeta = () => {
+  if (guardViewOnly()) return
   const state = getEditingSphereState()
   if (!state) return
   const prefix = state.sphere.name.startsWith('半径球') ? '半径球' : '两点球'
@@ -3509,6 +3554,7 @@ const applyEditSphereMeta = () => {
 }
 
 const applyEditSphereRadius = () => {
+  if (guardViewOnly()) return
   const state = getEditingSphereState()
   if (!state) return
   const nextRadius = Number(editSphere.radius)
@@ -3553,6 +3599,7 @@ const handleSphereRadiusBlur = () => {
 }
 
 const nudgeSphereRadius = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('sphere.radius')
   const current = Number(editSphere.radius)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -3585,6 +3632,7 @@ const nudgeSpherePointCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`sphere.${pointKey}.${axis}`, direction)
   if (nextValue === null) return
   editSphere[pointKey][axis] = nextValue
@@ -3619,6 +3667,7 @@ const getEditingConeState = () => {
 }
 
 const applyEditConeMeta = () => {
+  if (guardViewOnly()) return
   const state = getEditingConeState()
   if (!state) return
   const prefix = state.cone.coneType === 'normalCircle' ? '法向圆锥' : '圆锥'
@@ -3633,6 +3682,7 @@ const applyEditConeMeta = () => {
 }
 
 const applyEditConeRadius = () => {
+  if (guardViewOnly()) return
   const state = getEditingConeState()
   if (!state) return
   const nextRadius = Number(editCone.radius)
@@ -3641,6 +3691,7 @@ const applyEditConeRadius = () => {
 }
 
 const applyEditConeHeight = () => {
+  if (guardViewOnly()) return
   const state = getEditingConeState()
   if (!state) return
   const nextHeight = Number(editCone.height)
@@ -3684,6 +3735,7 @@ const handleConeRadiusBlur = () => {
 }
 
 const nudgeConeRadius = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('cone.radius')
   const current = Number(editCone.radius)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -3708,6 +3760,7 @@ const handleConeHeightBlur = () => {
 }
 
 const nudgeConeHeight = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('cone.height')
   const current = Number(editCone.height)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -3740,6 +3793,7 @@ const nudgeConePointCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`cone.${pointKey}.${axis}`, direction)
   if (nextValue === null) return
   editCone[pointKey][axis] = nextValue
@@ -3778,6 +3832,7 @@ const currentEditCylinder = computed(() => {
 })
 
 const applyEditCylinderMeta = () => {
+  if (guardViewOnly()) return
   const state = currentEditCylinder.value
   if (!state) return
   const prefix = '圆柱'
@@ -3792,6 +3847,7 @@ const applyEditCylinderMeta = () => {
 }
 
 const applyEditCylinderRadius = () => {
+  if (guardViewOnly()) return
   const state = currentEditCylinder.value
   if (!state) return
   const nextRadius = Number(editCylinder.radius)
@@ -3800,6 +3856,7 @@ const applyEditCylinderRadius = () => {
 }
 
 const applyEditCylinderHeight = () => {
+  if (guardViewOnly()) return
   const state = currentEditCylinder.value
   if (!state) return
   const nextHeight = Number(editCylinder.height)
@@ -3847,6 +3904,7 @@ const handleCylinderRadiusBlur = () => {
 }
 
 const nudgeCylinderRadius = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('cylinder.radius')
   const current = Number(editCylinder.radius)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -3875,6 +3933,7 @@ const handleCylinderHeightBlur = () => {
 }
 
 const nudgeCylinderHeight = (direction: 'up' | 'down') => {
+  if (guardViewOnly()) return
   hideLengthBubble('cylinder.height')
   const current = Number(editCylinder.height)
   if (direction === 'down' && current <= LENGTH_MIN) {
@@ -3907,6 +3966,7 @@ const nudgeCylinderPointCoord = (
   axis: 'x' | 'y' | 'z',
   direction: 'up' | 'down',
 ) => {
+  if (guardViewOnly()) return
   const nextValue = stepCoordInput(`cylinder.${pointKey}.${axis}`, direction)
   if (nextValue === null) return
   editCylinder[pointKey][axis] = nextValue
@@ -3923,6 +3983,7 @@ const startEditNet = (net: Net | undefined) => {
 }
 
 const applyEditNet = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'net') return
   const net = props.scene.nets.get(editing.value.id)
   if (!net) return
@@ -3944,6 +4005,7 @@ const startNetSliderDrag = (netId: string) => {
 }
 
 const applyEditNetUnfoldRatio = () => {
+  if (guardViewOnly()) return
   if (!editing.value || editing.value.type !== 'net') return
   const net = props.scene.nets.get(editing.value.id)
   if (!net) return
@@ -3971,6 +4033,7 @@ const commitEditNetUnfoldRatio = () => {
 }
 
 const nudgeNetUnfoldRatio = (netId: string, delta: number) => {
+  if (guardViewOnly()) return
   const net = props.scene.nets.get(netId)
   if (!net) return
   const currentPercent = Math.round(net.unfoldRatio * 100)
@@ -4976,7 +5039,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="sidebar">
+  <div class="sidebar" :class="{ 'is-view-only': viewOnly }">
     <p>当前操作模式：{{ modeName }}</p>
     <div v-if="modeHint" class="hint mode-hint">{{ modeHint }}</div>
     <div class="section-divider"></div>
@@ -11368,6 +11431,33 @@ onUnmounted(() => {
   min-height: 0;
   flex-shrink: 0;
 }
+
+/* 仅观看模式：禁用所有可编辑控件，但保留滚动和内容浏览 */
+.sidebar.is-view-only input,
+.sidebar.is-view-only select,
+.sidebar.is-view-only textarea,
+.sidebar.is-view-only button {
+  pointer-events: none;
+  opacity: 0.6;
+}
+/* 阻止 label 转发点击到被禁用的表单控件（否则 checkbox 仍可被 label 点击切换） */
+.sidebar.is-view-only label:has(> input),
+.sidebar.is-view-only label:has(> select),
+.sidebar.is-view-only label:has(> textarea),
+.sidebar.is-view-only label.toggle-label,
+.sidebar.is-view-only .toggle-label,
+.sidebar.is-view-only .nudge-btn,
+.sidebar.is-view-only .pi-mode-toggle {
+  pointer-events: none;
+}
+/* 仅观看模式下仍可操作的按钮：分组折叠/展开、几何引用跳转选中、信息提示 */
+.sidebar.is-view-only button.content-group-toggle,
+.sidebar.is-view-only button.geo-link,
+.sidebar.is-view-only button.hidden-hint-trigger {
+  pointer-events: auto;
+  opacity: 1;
+}
+/* 内容列表项（div）保持可见可滚动 */
 .sidebar > p {
   flex-shrink: 0;
 }

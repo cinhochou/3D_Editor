@@ -9,6 +9,8 @@ export interface Project {
   status: number
   createdAt: string
   updatedAt: string
+  // 软删除时间（回收站用，null=未删除）
+  deletedAt: string | null
 }
 
 export interface ProjectDetail {
