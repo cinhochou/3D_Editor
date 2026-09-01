@@ -162,6 +162,8 @@ const scrollToTop = () => {
 
 // ---- 自动定位并高亮项目（从房间列表的关联项目入口跳转过来）----
 const locateProject = (projectId: string) => {
+  // 定位是一次性动作：立即清理 URL 中的 query，保持路径干净，刷新时不重复定位
+  router.replace({ query: {} })
   // 清空搜索，确保目标项目在过滤结果中可见
   searchQuery.value = ''
   nextTick(() => {
