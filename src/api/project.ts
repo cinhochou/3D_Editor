@@ -38,9 +38,11 @@ export const projectApi = {
     return apiClient.get<number>(`/project/count?userId=${userId}`)
   },
 
-  async uploadThumbnail(file: Blob): Promise<string> {
+  async uploadThumbnail(file: Blob, projectId?: string): Promise<string> {
     const formData = new FormData()
     formData.append('file', file, 'thumbnail.jpg')
+    // 携带项目ID，后端以项目ID作为缩略图文件名：同一项目的新缩略图会覆盖旧文件，避免累积
+    if (projectId) formData.append('projectId', projectId)
     return apiClient.upload<string>('/project/upload-thumbnail', formData)
   },
 

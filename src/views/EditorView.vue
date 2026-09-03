@@ -453,7 +453,7 @@ const autoSave = async () => {
       const thumbnailBlob = await captureThumbnailAsync()
       if (thumbnailBlob) {
         try {
-          thumbnailUrl = await projectApi.uploadThumbnail(thumbnailBlob)
+          thumbnailUrl = await projectApi.uploadThumbnail(thumbnailBlob, currentProjectId.value)
         } catch {
           thumbnailUrl = undefined
         }
@@ -2544,7 +2544,7 @@ const handleNewProjectConfirm = async (data: {
           let thumbnailUrl: string | undefined
           if (thumbnailBlob) {
             try {
-              thumbnailUrl = await projectApi.uploadThumbnail(thumbnailBlob)
+              thumbnailUrl = await projectApi.uploadThumbnail(thumbnailBlob, project.id)
             } catch {
               thumbnailUrl = undefined
             }
@@ -2607,7 +2607,7 @@ const saveProjectIfChangedAndClose = async (): Promise<boolean> => {
       let thumbnailUrl: string | undefined
       if (thumbnailBlob) {
         try {
-          thumbnailUrl = await projectApi.uploadThumbnail(thumbnailBlob)
+          thumbnailUrl = await projectApi.uploadThumbnail(thumbnailBlob, projectId)
         } catch {
           thumbnailUrl = undefined
         }
@@ -2797,7 +2797,7 @@ const handleSaveScene = async () => {
     let thumbnailUrl: string | undefined
     if (thumbnailBlob) {
       try {
-        thumbnailUrl = await projectApi.uploadThumbnail(thumbnailBlob)
+        thumbnailUrl = await projectApi.uploadThumbnail(thumbnailBlob, currentProjectId.value)
       } catch {
         thumbnailUrl = undefined
       }
